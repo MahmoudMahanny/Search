@@ -252,16 +252,24 @@
 
   let rawData;
   try {
-    const resp = await fetch('data.json');
+    const resp = await fetch('plates.txt.gz');
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    rawData = await resp.json();
+    const buf = await resp.arrayBuffer();
+    let text;
+    if (typeof DecompressionStream !== 'undefined') {
+      const ds = new DecompressionStream('gzip');
+      const stream = new Blob([buf]).stream().pipeThrough(ds);
+      text = await new Response(stream).text();
+    } else {
+      throw new Error('المتصفح لا يدعم فك الضغط — استخدم كروم حديث');
+    }
+    rawData = text.split('\n').filter(Boolean).map(line => line.split('|'));
   } catch (err) {
-    dbCountEl.textContent = '⚠️ تعذر تحميل قاعدة البيانات (' + err.message + ') — تأكد إن data.json موجود جنب index.html';
+    dbCountEl.textContent = '⚠️ تعذر تحميل قاعدة البيانات (' + err.message + ')';
     return;
   }
   // rawData: [ [plate, type, bank, chassis], ... ]
 
-  const dbCountEl = document.getElementById('dbCount');
   dbCountEl.textContent = 'قاعدة البيانات: ' + rawData.length.toLocaleString('ar-EG') + ' سجل';
 
   const input = document.getElementById('plateInput');
