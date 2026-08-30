@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>بحث اللوحات - طـه</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --border: #2a2f3a;
+    --text: #eef0f4;
+    --muted: #9aa2b1;
+    --accent: #d4af37;
+    --accent-dim: #8a742a;
+    --good: #4caf7d;
+    --danger: #e05a5a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  .wrap {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 20px 16px 60px;
+  }
+  header {
+    text-align: center;
+    margin-bottom: 18px;
+  }
+  header h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+  }
+  header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .search-box {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 6px 6px 6px 10px;
+  }
+  #plateInput {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-size: 20px;
+    padding: 10px 4px;
+    text-align: center;
+    letter-spacing: 1px;
+    direction: rtl;
+    min-width: 0;
+  }
+  #plateInput::placeholder {
+    color: var(--muted);
+    font-size: 15px;
+  }
+  .icon-btn {
+    border: none;
+    border-radius: 10px;
+    width: 46px;
+    height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .icon-btn:active { transform: scale(0.93); }
+  #micBtn {
+    background: var(--accent);
+    color: #1a1a1a;
+  }
+  #micBtn.listening {
+    background: var(--danger);
+    color: #fff;
+    animation: pulse 1.1s infinite;
+  }
+  #camBtn {
+    background: var(--panel-2);
+    border: 1px solid var(--accent-dim);
+    color: var(--accent);
+  }
+  #camBtn.busy {
+    animation: pulse2 1.1s infinite;
+  }
+  @keyframes pulse2 {
+    0% { box-shadow: 0 0 0 0 rgba(212,175,55,0.55); }
+    70% { box-shadow: 0 0 0 12px rgba(212,175,55,0); }
+    100% { box-shadow: 0 0 0 0 rgba(212,175,55,0); }
+  }
+  .preview-img {
+    max-width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-top: 4px;
+  }
+  #clearBtn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(224,90,90,0.55); }
+    70% { box-shadow: 0 0 0 12px rgba(224,90,90,0); }
+    100% { box-shadow: 0 0 0 0 rgba(224,90,90,0); }
+  }
+  .status-line {
+    min-height: 18px;
+    font-size: 12.5px;
+    color: var(--muted);
+    text-align: center;
+  }
+  .status-line.listening-text { color: var(--danger); }
+  .status-line.ok-text { color: var(--good); }
+
+  .quickpad {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .quickpad button {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 0;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .quickpad button:active { background: var(--accent-dim); }
+
+  .results {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .result-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    animation: fadeIn 0.25s ease;
+  }
+  .result-card.exact {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent-dim) inset;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .plate-num {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+    text-align: center;
+    direction: rtl;
+  }
+  .field-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+    border-top: 1px dashed var(--border);
+    font-size: 14px;
+  }
+  .field-row:first-of-type { border-top: none; }
+  .field-label { color: var(--muted); }
+  .field-value { color: var(--text); font-weight: 600; text-align: left; direction: ltr; unicode-bidi: plaintext;}
+
+  .empty-state, .no-results {
+    text-align: center;
+    color: var(--muted);
+    padding: 30px 10px;
+    font-size: 14px;
+    line-height: 1.8;
+  }
+  .no-results { color: var(--danger); }
+
+  .count-badge {
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    margin-top: 6px;
+  }
+  .footer-note {
+    text-align: center;
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 24px;
+    opacity: 0.6;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🔍 بحث اللوحات — طـه</h1>
+    <p id="dbCount">جارٍ تحميل قاعدة البيانات...</p>
+  </header>
+
+  <div class="search-box">
+    <div class="input-row">
+      <button id="clearBtn" class="icon-btn" title="مسح">✕</button>
+      <input id="plateInput" type="text" placeholder="اكتب رقم اللوحة أو اضغط المايك/الكاميرا" autocomplete="off" />
+      <button id="camBtn" class="icon-btn" title="بحث بالصورة">📷</button>
+      <button id="micBtn" class="icon-btn" title="بحث صوتي">🎤</button>
+      <input id="camInput" type="file" accept="image/*" capture="environment" style="display:none" />
+    </div>
+    <div id="statusLine" class="status-line"></div>
+  </div>
+
+  <div id="results" class="results"></div>
+</div>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
+<script>
+(async function () {
+  const dbCountEl = document.getElementById('dbCount');
+  dbCountEl.textContent = 'جارٍ تحميل قاعدة البيانات...';
+
+  let rawData;
+  try {
+    const resp = await fetch('data.json');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    rawData = await resp.json();
+  } catch (err) {
+    dbCountEl.textContent = '⚠️ تعذر تحميل قاعدة البيانات (' + err.message + ') — تأكد إن data.json موجود جنب index.html';
+    return;
+  }
+  // rawData: [ [plate, type, bank, chassis], ... ]
+
+  const dbCountEl = document.getElementById('dbCount');
+  dbCountEl.textContent = 'قاعدة البيانات: ' + rawData.length.toLocaleString('ar-EG') + ' سجل';
+
+  const input = document.getElementById('plateInput');
+  const micBtn = document.getElementById('micBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const statusLine = document.getElementById('statusLine');
+  const resultsEl = document.getElementById('results');
+
+  // ---- Normalization helpers ----
+  const arabicIndicDigits = '٠١٢٣٤٥٦٧٨٩';
+  const easternIndicDigits = '۰۱۲۳۴۵۶۷۸۹';
+
+  function normalizeDigits(str) {
+    return str.replace(/[٠-٩]/g, d => String(arabicIndicDigits.indexOf(d)))
+               .replace(/[۰-۹]/g, d => String(easternIndicDigits.indexOf(d)));
+  }
+
+  function stripTashkeel(str) {
+    return str.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '');
+  }
+
+  function normalizeArabicLetters(str) {
+    return str
+      .replace(/[إأآا]/g, 'ا')
+      .replace(/ى/g, 'ي')
+      .replace(/ة/g, 'ه')
+      .replace(/ؤ/g, 'و')
+      .replace(/ئ/g, 'ي')
+      .replace(/ٱ/g, 'ا');
+  }
+
+  function normalizeText(str) {
+    if (!str) return '';
+    str = normalizeDigits(str);
+    str = stripTashkeel(str);
+    str = normalizeArabicLetters(str);
+    str = str.replace(/\s+/g, '');
+    str = str.toLowerCase();
+    return str;
+  }
+
+  // Map of Arabic letter *names* spoken aloud -> the letter itself,
+  // so voice recognition saying "الف نون قاف" still matches "انق"
+  const letterNames = {
+    'الف': 'ا', 'أ': 'ا', 'ألف': 'ا',
+    'باء': 'ب', 'با': 'ب',
+    'تاء': 'ت', 'تا': 'ت',
+    'ثاء': 'ث', 'ثا': 'ث',
+    'جيم': 'ج',
+    'حاء': 'ح', 'حا': 'ح',
+    'خاء': 'خ', 'خا': 'خ',
+    'دال': 'د',
+    'ذال': 'ذ',
+    'راء': 'ر', 'را': 'ر',
+    'زاي': 'ز', 'زين': 'ز',
+    'سين': 'س',
+    'شين': 'ش',
+    'صاد': 'ص',
+    'ضاد': 'ض',
+    'طاء': 'ط', 'طا': 'ط',
+    'ظاء': 'ظ', 'ظا': 'ظ',
+    'عين': 'ع',
+    'غين': 'غ',
+    'فاء': 'ف', 'فا': 'ف',
+    'قاف': 'ق',
+    'كاف': 'ك',
+    'لام': 'ل',
+    'ميم': 'م',
+    'نون': 'ن',
+    'هاء': 'ه', 'ها': 'ه',
+    'واو': 'و',
+    'ياء': 'ي', 'يا': 'ي'
+  };
+
+  // Spoken number words -> digits (Egyptian/Gulf colloquial-ish coverage)
+  const numberWords = {
+    'صفر': '0',
+    'واحد': '1', 'وحدة': '1', 'واحده': '1',
+    'اثنين': '2', 'اتنين': '2', 'إثنين': '2', 'اثنان': '2',
+    'ثلاثة': '3', 'تلاته': '3', 'ثلاثه': '3', 'تلاتة': '3',
+    'اربعة': '4', 'أربعة': '4', 'اربعه': '4', 'أربعه': '4',
+    'خمسة': '5', 'خمسه': '5',
+    'ستة': '6', 'سته': '6',
+    'سبعة': '7', 'سبعه': '7',
+    'ثمانية': '8', 'ثمانيه': '8', 'تمانية': '8', 'تمانيه': '8',
+    'تسعة': '9', 'تسعه': '9'
+  };
+
+  // Convert a raw spoken/typed phrase into a compact search token
+  // e.g. "دال عين 3 6 9 8" -> "دع3698"
+  // e.g. "راء ا ن 5 4 4"  -> "ران544"
+  function transcriptToPlateToken(text) {
+    text = normalizeDigits(text);
+    text = stripTashkeel(text);
+    // split into words, keep digit runs intact
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    let out = '';
+    for (let w of words) {
+      const wLower = w.trim();
+      if (/^\d+$/.test(wLower)) {
+        out += wLower;
+        continue;
+      }
+      if (numberWords[wLower]) {
+        out += numberWords[wLower];
+        continue;
+      }
+      if (letterNames[wLower]) {
+        out += letterNames[wLower];
+        continue;
+      }
+      // single arabic letter already
+      if (/^[\u0621-\u064A]$/.test(wLower)) {
+        out += wLower;
+        continue;
+      }
+      // fallback: strip and append as-is (letters glued together e.g. "دطط")
+      out += wLower.replace(/[^\u0621-\u064A0-9]/g, '');
+    }
+    return normalizeArabicLetters(out).toLowerCase();
+  }
+
+  // Pre-normalize the DB once for fast search
+  const normDB = rawData.map(row => ({
+    plate: row[0] || '',
+    type: row[1] || '',
+    bank: row[2] || '',
+    chassis: row[3] || '',
+    normPlate: normalizeText(row[0] || '')
+  }));
+
+  function renderEmpty() {
+    resultsEl.innerHTML = '<div class="empty-state">اكتب رقم اللوحة يدويًا، أو اضغط 🎤 وقول الحروف والأرقام<br>مثال: «دال عين 3 6 9 8»</div>';
+  }
+
+  function renderResults(query) {
+    const token = transcriptToPlateToken(query);
+    if (!token) { renderEmpty(); return; }
+
+    const exact = [];
+    const partial = [];
+
+    for (const row of normDB) {
+      if (row.normPlate === token) {
+        exact.push(row);
+      } else if (row.normPlate.includes(token) || token.includes(row.normPlate)) {
+        partial.push(row);
+      }
+    }
+
+    // If exact matches found, show only those (deduped by plate+chassis)
+    let list = exact.length ? exact : partial.slice(0, 30);
+
+    // Dedup
+    const seen = new Set();
+    list = list.filter(r => {
+      const key = r.plate + '|' + r.chassis + '|' + r.bank;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    if (list.length === 0) {
+      resultsEl.innerHTML = '<div class="no-results">⚠️ مفيش نتيجة مطابقة لـ «' + query + '»<br>جرب تتأكد من الحروف أو الأرقام</div>';
+      return;
+    }
+
+    const isExact = exact.length > 0;
+    let html = '<div class="count-badge">' + (isExact ? '✅ تطابق تام' : '🔎 نتائج قريبة') + ' — ' + list.length + ' نتيجة</div>';
+
+    for (const r of list) {
+      html += '<div class="result-card ' + (isExact ? 'exact' : '') + '">';
+      html += '<div class="plate-num">' + escapeHtml(r.plate) + '</div>';
+      if (r.type) html += fieldRow('النوع', r.type);
+      if (r.bank) html += fieldRow('البنك', r.bank);
+      if (r.chassis) html += fieldRow('الهيكل', r.chassis);
+      html += '</div>';
+    }
+    resultsEl.innerHTML = html;
+  }
+
+  function fieldRow(label, value) {
+    return '<div class="field-row"><span class="field-label">' + label + '</span><span class="field-value">' + escapeHtml(String(value)) + '</span></div>';
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  let debounceTimer = null;
+  input.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const val = input.value;
+    if (!val.trim()) { renderEmpty(); return; }
+    debounceTimer = setTimeout(() => renderResults(val), 150);
+  });
+
+  clearBtn.addEventListener('click', () => {
+    input.value = '';
+    renderEmpty();
+    statusLine.textContent = '';
+    statusLine.className = 'status-line';
+    input.focus();
+  });
+
+  // ---- Voice recognition ----
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition = null;
+  let listening = false;
+
+  if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.lang = 'ar-SA';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      listening = true;
+      micBtn.classList.add('listening');
+      statusLine.textContent = '🎙️ بيسمعك دلوقتي... اتكلم';
+      statusLine.className = 'status-line listening-text';
+    };
+
+    recognition.onresult = (event) => {
+      let transcript = '';
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      input.value = transcript;
+      if (event.results[event.results.length - 1].isFinal) {
+        renderResults(transcript);
+        statusLine.textContent = '✅ سمعت: ' + transcript;
+        statusLine.className = 'status-line ok-text';
+      }
+    };
+
+    recognition.onerror = (event) => {
+      let msg = 'خطأ: ' + event.error;
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        msg = '⚠️ الإذن مرفوض — دوس على 🔒 بجانب العنوان في المتصفح، وفعّل "Microphone"، وارجع افتح الصفحة تاني';
+      } else if (event.error === 'no-speech') {
+        msg = '⚠️ مسمعتش حاجة — جرب تاني وقول بصوت أعلى';
+      } else if (event.error === 'audio-capture') {
+        msg = '⚠️ مفيش مايك متاح على الجهاز ده';
+      } else if (event.error === 'network') {
+        msg = '⚠️ خطأ شبكة — التعرف على الصوت محتاج إنترنت';
+      }
+      statusLine.textContent = msg;
+      statusLine.className = 'status-line';
+      listening = false;
+      micBtn.classList.remove('listening');
+    };
+
+    recognition.onend = () => {
+      listening = false;
+      micBtn.classList.remove('listening');
+      if (!statusLine.classList.contains('ok-text')) {
+        statusLine.textContent = '';
+        statusLine.className = 'status-line';
+      }
+    };
+
+    async function startListening() {
+      // Explicitly request mic permission first — inside an iframe (like an
+      // artifact preview) the SpeechRecognition API sometimes fails silently
+      // unless getUserMedia has already been granted in this frame.
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach(t => t.stop());
+        } catch (permErr) {
+          statusLine.textContent = '⚠️ مرفوض إذن المايك (' + (permErr.name || permErr.message) + ') — دوس على أيقونة القفل بجانب العنوان وفعّل المايك يدويًا';
+          statusLine.className = 'status-line';
+          return;
+        }
+      }
+      try {
+        recognition.start();
+      } catch (e) {
+        statusLine.textContent = '⚠️ خطأ: ' + (e.name || e.message || 'غير معروف');
+        statusLine.className = 'status-line';
+      }
+    }
+
+    micBtn.addEventListener('click', () => {
+      if (listening) {
+        recognition.stop();
+        return;
+      }
+      startListening();
+    });
+  } else {
+    micBtn.disabled = true;
+    micBtn.style.opacity = '0.4';
+    statusLine.textContent = 'البحث الصوتي مش مدعوم في المتصفح ده — استخدم الكتابة';
+  }
+
+  // ---- Image (OCR) search ----
+  const camBtn = document.getElementById('camBtn');
+  const camInput = document.getElementById('camInput');
+  let ocrWorker = null;
+
+  camBtn.addEventListener('click', () => {
+    camInput.click();
+  });
+
+  camInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    camBtn.classList.add('busy');
+    statusLine.textContent = '📷 جارٍ قراءة الصورة...';
+    statusLine.className = 'status-line listening-text';
+    resultsEl.innerHTML = '';
+
+    try {
+      if (typeof Tesseract === 'undefined') {
+        throw new Error('مكتبة القراءة لم تُحمَّل — تأكد من الاتصال بالإنترنت');
+      }
+
+      if (!ocrWorker) {
+        statusLine.textContent = '📷 جارٍ تجهيز محرك القراءة (أول مرة فقط)...';
+        ocrWorker = await Tesseract.createWorker('ara+eng');
+      }
+
+      statusLine.textContent = '📷 جارٍ تحليل الصورة...';
+      const { data } = await ocrWorker.recognize(file);
+      const text = (data && data.text) ? data.text.trim() : '';
+
+      if (!text) {
+        statusLine.textContent = '⚠️ مقدرتش أقرا أي نص من الصورة — جرب صورة أوضح وأقرب';
+        statusLine.className = 'status-line';
+        renderEmpty();
+        return;
+      }
+
+      input.value = text;
+      statusLine.textContent = '✅ قريت: ' + text.replace(/\s+/g, ' ');
+      statusLine.className = 'status-line ok-text';
+      renderResults(text);
+    } catch (err) {
+      statusLine.textContent = '⚠️ خطأ في قراءة الصورة: ' + (err.message || err);
+      statusLine.className = 'status-line';
+    } finally {
+      camBtn.classList.remove('busy');
+      camInput.value = '';
+    }
+  });
+
+  renderEmpty();
+})();
+
+</script>
+</body>
+</html>
