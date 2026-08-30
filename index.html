@@ -127,6 +127,55 @@
     border: 1px solid var(--border);
     margin-top: 4px;
   }
+  #cropOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.92);
+    z-index: 999;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+  }
+  #cropOverlay.active { display: flex; }
+  #cropCanvasWrap {
+    position: relative;
+    max-width: 100%;
+    max-height: 65vh;
+    touch-action: none;
+  }
+  #cropCanvas {
+    max-width: 100%;
+    max-height: 65vh;
+    display: block;
+    border-radius: 8px;
+    touch-action: none;
+  }
+  .crop-hint {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    margin: 12px 0 16px;
+    line-height: 1.6;
+  }
+  .crop-actions {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    max-width: 400px;
+  }
+  .crop-actions button {
+    flex: 1;
+    padding: 12px 0;
+    border-radius: 10px;
+    border: none;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #cropConfirm { background: var(--accent); color: #1a1a1a; }
+  #cropCancel { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
   #clearBtn {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -249,6 +298,17 @@
   </div>
 
   <div id="results" class="results"></div>
+
+  <div id="cropOverlay">
+    <div id="cropCanvasWrap">
+      <canvas id="cropCanvas"></canvas>
+    </div>
+    <div class="crop-hint">حدد بإصبعك مكان اللوحة بالظبط، وكل ما كانت المساحة أصغر وأدق كل ما كانت القراءة أفضل</div>
+    <div class="crop-actions">
+      <button id="cropCancel">إلغاء</button>
+      <button id="cropConfirm">قص وابحث ✅</button>
+    </div>
+  </div>
 </div>
 
 
@@ -576,72 +636,49 @@
     statusLine.textContent = 'البحث الصوتي مش مدعوم في المتصفح ده — استخدم الكتابة';
   }
 
-  // ---- Image (OCR) search ----
+  // ---- Image (OCR) search with interactive crop ----
   const camBtn = document.getElementById('camBtn');
   const camInput = document.getElementById('camInput');
   const uploadBtn = document.getElementById('uploadBtn');
   const uploadInput = document.getElementById('uploadInput');
+  const cropOverlay = document.getElementById('cropOverlay');
+  const cropCanvas = document.getElementById('cropCanvas');
+  const cropConfirm = document.getElementById('cropConfirm');
+  const cropCancel = document.getElementById('cropCancel');
   let ocrWorker = null;
+  let cropState = null;
 
   camBtn.addEventListener('click', () => camInput.click());
   uploadBtn.addEventListener('click', () => uploadInput.click());
 
-  async function handleImageFile(file, triggerBtn) {
+  function openCropper(file, triggerBtn) {
     if (!file) return;
-
-    triggerBtn.classList.add('busy');
-    statusLine.textContent = '📷 جارٍ قراءة الصورة...';
-    statusLine.className = 'status-line listening-text';
-    resultsEl.innerHTML = '';
-
-    try {
-      if (typeof Tesseract === 'undefined') {
-        throw new Error('مكتبة القراءة لم تُحمَّل — تأكد من الاتصال بالإنترنت');
-      }
-
-      if (!ocrWorker) {
-        statusLine.textContent = '📷 جارٍ تجهيز محرك القراءة (أول مرة فقط)...';
-        ocrWorker = await Tesseract.createWorker('ara+eng');
-      }
-
-      statusLine.textContent = '📷 جارٍ تحليل الصورة...';
-      const { data } = await ocrWorker.recognize(file);
-      const text = (data && data.text) ? data.text.trim() : '';
-
-      if (!text) {
-        statusLine.textContent = '⚠️ مقدرتش أقرا أي نص من الصورة — جرب صورة أوضح وأقرب';
-        statusLine.className = 'status-line';
-        renderEmpty();
-        return;
-      }
-
-      input.value = text;
-      statusLine.textContent = '✅ قريت: ' + text.replace(/\s+/g, ' ');
-      statusLine.className = 'status-line ok-text';
-      renderResults(text);
-    } catch (err) {
-      statusLine.textContent = '⚠️ خطأ في قراءة الصورة: ' + (err.message || err);
-      statusLine.className = 'status-line';
-    } finally {
-      triggerBtn.classList.remove('busy');
-    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        cropCanvas.width = img.naturalWidth;
+        cropCanvas.height = img.naturalHeight;
+        const ctx = cropCanvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        cropState = { img, ctx, sel: null, dragging: false, startX: 0, startY: 0, triggerBtn };
+        cropOverlay.classList.add('active');
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
   }
 
-  camInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    handleImageFile(file, camBtn);
-    camInput.value = '';
-  });
+  function getCanvasPos(e) {
+    const rect = cropCanvas.getBoundingClientRect();
+    const scaleX = cropCanvas.width / rect.width;
+    const scaleY = cropCanvas.height / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  }
 
-  uploadInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    handleImageFile(file, uploadBtn);
-    uploadInput.value = '';
-  });
-
-  renderEmpty();
-})();
-
-</script>
-</body>
-</html>
+  function redrawWithSelection() {
+    if (!cropState) return;
+    const { ctx, img, sel } = cropState;
+    ctx.drawImage(img, 0, 0, cropCanvas.width, cropCanvas.height);
+    if (sel) {
+      ctx.strokeStyle 
