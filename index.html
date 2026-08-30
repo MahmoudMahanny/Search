@@ -318,18 +318,41 @@
   const dbCountEl = document.getElementById('dbCount');
   dbCountEl.textContent = 'جارٍ تحميل قاعدة البيانات...';
 
+  // Global safety net: if ANYTHING below throws unexpectedly and isn't
+  // caught locally, show it here instead of leaving the "loading" message
+  // stuck forever with no way to diagnose what happened.
+  window.addEventListener('error', (e) => {
+    if (dbCountEl.textContent.indexOf('جارٍ تحميل') === 0) {
+      dbCountEl.textContent = '⚠️ خطأ غير متوقع: ' + (e.message || e.error);
+    }
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    if (dbCountEl.textContent.indexOf('جارٍ تحميل') === 0) {
+      dbCountEl.textContent = '⚠️ خطأ غير متوقع: ' + (e.reason && e.reason.message ? e.reason.message : e.reason);
+    }
+  });
+
   let rawData;
   try {
     const resp = await fetch('plates.txt.gz');
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const buf = await resp.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    // Check gzip magic number (0x1f 0x8b). Some CDNs (incl. GitHub Pages/Fastly)
+    // transparently decompress .gz files server-side via Content-Encoding, in
+    // which case buf already holds the plain text and re-decompressing would
+    // fail. Detect which case we're in instead of assuming.
+    const isGzipped = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
     let text;
-    if (typeof DecompressionStream !== 'undefined') {
+    if (isGzipped) {
+      if (typeof DecompressionStream === 'undefined') {
+        throw new Error('المتصفح لا يدعم فك الضغط — استخدم كروم حديث');
+      }
       const ds = new DecompressionStream('gzip');
       const stream = new Blob([buf]).stream().pipeThrough(ds);
       text = await new Response(stream).text();
     } else {
-      throw new Error('المتصفح لا يدعم فك الضغط — استخدم كروم حديث');
+      text = new TextDecoder('utf-8').decode(bytes);
     }
     rawData = text.split('\n').filter(Boolean).map(line => line.split('|'));
   } catch (err) {
@@ -648,37 +671,4 @@
   let ocrWorker = null;
   let cropState = null;
 
-  camBtn.addEventListener('click', () => camInput.click());
-  uploadBtn.addEventListener('click', () => uploadInput.click());
-
-  function openCropper(file, triggerBtn) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const img = new Image();
-      img.onload = () => {
-        cropCanvas.width = img.naturalWidth;
-        cropCanvas.height = img.naturalHeight;
-        const ctx = cropCanvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        cropState = { img, ctx, sel: null, dragging: false, startX: 0, startY: 0, triggerBtn };
-        cropOverlay.classList.add('active');
-      };
-      img.src = ev.target.result;
-    };
-    reader.readAsDataURL(file);
-  }
-
-  function getCanvasPos(e) {
-    const rect = cropCanvas.getBoundingClientRect();
-    const scaleX = cropCanvas.width / rect.width;
-    const scaleY = cropCanvas.height / rect.height;
-    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
-  }
-
-  function redrawWithSelection() {
-    if (!cropState) return;
-    const { ctx, img, sel } = cropState;
-    ctx.drawImage(img, 0, 0, cropCanvas.width, cropCanvas.height);
-    if (sel) {
-      ctx.strokeStyle 
+  camBtn.addEventListener('click', () => camInput.clic
