@@ -83,8 +83,9 @@
   .icon-btn {
     border: none;
     border-radius: 10px;
-    width: 46px;
-    height: 46px;
+    width: 40px;
+    height: 40px;
+    font-size: 17px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -107,7 +108,12 @@
     border: 1px solid var(--accent-dim);
     color: var(--accent);
   }
-  #camBtn.busy {
+  #uploadBtn {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  #camBtn.busy, #uploadBtn.busy {
     animation: pulse2 1.1s infinite;
   }
   @keyframes pulse2 {
@@ -233,9 +239,11 @@
     <div class="input-row">
       <button id="clearBtn" class="icon-btn" title="مسح">✕</button>
       <input id="plateInput" type="text" placeholder="اكتب رقم اللوحة أو اضغط المايك/الكاميرا" autocomplete="off" />
-      <button id="camBtn" class="icon-btn" title="بحث بالصورة">📷</button>
+      <button id="camBtn" class="icon-btn" title="التقاط صورة">📷</button>
+      <button id="uploadBtn" class="icon-btn" title="رفع صورة">🖼️</button>
       <button id="micBtn" class="icon-btn" title="بحث صوتي">🎤</button>
       <input id="camInput" type="file" accept="image/*" capture="environment" style="display:none" />
+      <input id="uploadInput" type="file" accept="image/*" style="display:none" />
     </div>
     <div id="statusLine" class="status-line"></div>
   </div>
@@ -571,17 +579,17 @@
   // ---- Image (OCR) search ----
   const camBtn = document.getElementById('camBtn');
   const camInput = document.getElementById('camInput');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const uploadInput = document.getElementById('uploadInput');
   let ocrWorker = null;
 
-  camBtn.addEventListener('click', () => {
-    camInput.click();
-  });
+  camBtn.addEventListener('click', () => camInput.click());
+  uploadBtn.addEventListener('click', () => uploadInput.click());
 
-  camInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
+  async function handleImageFile(file, triggerBtn) {
     if (!file) return;
 
-    camBtn.classList.add('busy');
+    triggerBtn.classList.add('busy');
     statusLine.textContent = '📷 جارٍ قراءة الصورة...';
     statusLine.className = 'status-line listening-text';
     resultsEl.innerHTML = '';
@@ -615,9 +623,20 @@
       statusLine.textContent = '⚠️ خطأ في قراءة الصورة: ' + (err.message || err);
       statusLine.className = 'status-line';
     } finally {
-      camBtn.classList.remove('busy');
-      camInput.value = '';
+      triggerBtn.classList.remove('busy');
     }
+  }
+
+  camInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    handleImageFile(file, camBtn);
+    camInput.value = '';
+  });
+
+  uploadInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    handleImageFile(file, uploadBtn);
+    uploadInput.value = '';
   });
 
   renderEmpty();
