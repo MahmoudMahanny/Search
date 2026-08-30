@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>بحث اللوحات - طـه</title>
+<title>بحث اللوحات </title>
 <style>
   :root {
     --bg: #0f1115;
@@ -671,4 +671,154 @@
   let ocrWorker = null;
   let cropState = null;
 
-  camBtn.addEventListener('click', () => camInput.clic
+  camBtn.addEventListener('click', () => camInput.click());
+  uploadBtn.addEventListener('click', () => uploadInput.click());
+
+  function openCropper(file, triggerBtn) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        cropCanvas.width = img.naturalWidth;
+        cropCanvas.height = img.naturalHeight;
+        const ctx = cropCanvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        cropState = { img, ctx, sel: null, dragging: false, startX: 0, startY: 0, triggerBtn };
+        cropOverlay.classList.add('active');
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function getCanvasPos(e) {
+    const rect = cropCanvas.getBoundingClientRect();
+    const scaleX = cropCanvas.width / rect.width;
+    const scaleY = cropCanvas.height / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  }
+
+  function redrawWithSelection() {
+    if (!cropState) return;
+    const { ctx, img, sel } = cropState;
+    ctx.drawImage(img, 0, 0, cropCanvas.width, cropCanvas.height);
+    if (sel) {
+      ctx.strokeStyle = '#d4af37';
+      ctx.lineWidth = Math.max(3, cropCanvas.width * 0.005);
+      ctx.strokeRect(sel.x, sel.y, sel.w, sel.h);
+      ctx.fillStyle = 'rgba(212,175,55,0.18)';
+      ctx.fillRect(sel.x, sel.y, sel.w, sel.h);
+    }
+  }
+
+  cropCanvas.addEventListener('pointerdown', (e) => {
+    if (!cropState) return;
+    const p = getCanvasPos(e);
+    cropState.dragging = true;
+    cropState.startX = p.x;
+    cropState.startY = p.y;
+    cropState.sel = { x: p.x, y: p.y, w: 0, h: 0 };
+  });
+  cropCanvas.addEventListener('pointermove', (e) => {
+    if (!cropState || !cropState.dragging) return;
+    const p = getCanvasPos(e);
+    const x = Math.min(p.x, cropState.startX);
+    const y = Math.min(p.y, cropState.startY);
+    const w = Math.abs(p.x - cropState.startX);
+    const h = Math.abs(p.y - cropState.startY);
+    cropState.sel = { x, y, w, h };
+    redrawWithSelection();
+  });
+  cropCanvas.addEventListener('pointerup', () => { if (cropState) cropState.dragging = false; });
+  cropCanvas.addEventListener('pointercancel', () => { if (cropState) cropState.dragging = false; });
+
+  cropCancel.addEventListener('click', () => {
+    cropOverlay.classList.remove('active');
+    cropState = null;
+  });
+
+  cropConfirm.addEventListener('click', () => {
+    if (!cropState) return;
+    const { sel, triggerBtn } = cropState;
+    cropOverlay.classList.remove('active');
+
+    const out = document.createElement('canvas');
+    if (sel && sel.w > 15 && sel.h > 10) {
+      out.width = sel.w;
+      out.height = sel.h;
+      out.getContext('2d').drawImage(cropCanvas, sel.x, sel.y, sel.w, sel.h, 0, 0, sel.w, sel.h);
+    } else {
+      out.width = cropCanvas.width;
+      out.height = cropCanvas.height;
+      out.getContext('2d').drawImage(cropCanvas, 0, 0);
+    }
+    out.toBlob((blob) => { runOCR(blob, triggerBtn); }, 'image/png');
+    cropState = null;
+  });
+
+  async function runOCR(file, triggerBtn) {
+    if (!file) return;
+
+    triggerBtn.classList.add('busy');
+    statusLine.textContent = '📷 جارٍ قراءة الصورة...';
+    statusLine.className = 'status-line listening-text';
+    resultsEl.innerHTML = '';
+
+    try {
+      if (typeof Tesseract === 'undefined') {
+        throw new Error('مكتبة القراءة لم تُحمَّل — تأكد من الاتصال بالإنترنت');
+      }
+
+      if (!ocrWorker) {
+        statusLine.textContent = '📷 جارٍ تجهيز محرك القراءة (أول مرة فقط)...';
+        ocrWorker = await Tesseract.createWorker('ara+eng');
+        // Restrict recognition to plate-relevant characters only (digits + Arabic/Latin
+        // letters), which cuts down heavily on garbage output from background clutter.
+        await ocrWorker.setParameters({
+          tessedit_char_whitelist:
+            '0123456789٠١٢٣٤٥٦٧٨٩ابتثجحخدذرزسشصضطظعغفقكلمنهويىءأإآؤئة ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+        });
+      }
+
+      statusLine.textContent = '📷 جارٍ تحليل الصورة...';
+      const { data } = await ocrWorker.recognize(file);
+      const text = (data && data.text) ? data.text.trim() : '';
+
+      if (!text) {
+        statusLine.textContent = '⚠️ مقدرتش أقرا أي نص من الصورة — جرب تحديد مساحة اللوحة بدقة أكتر';
+        statusLine.className = 'status-line';
+        renderEmpty();
+        return;
+      }
+
+      input.value = text;
+      statusLine.textContent = '✅ قريت: ' + text.replace(/\s+/g, ' ');
+      statusLine.className = 'status-line ok-text';
+      renderResults(text);
+    } catch (err) {
+      statusLine.textContent = '⚠️ خطأ في قراءة الصورة: ' + (err.message || err);
+      statusLine.className = 'status-line';
+    } finally {
+      triggerBtn.classList.remove('busy');
+    }
+  }
+
+  camInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    openCropper(file, camBtn);
+    camInput.value = '';
+  });
+
+  uploadInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    openCropper(file, uploadBtn);
+    uploadInput.value = '';
+  });
+
+  renderEmpty();
+})();
+
+</script>
+</body>
+</html>
