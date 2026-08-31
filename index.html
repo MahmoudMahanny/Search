@@ -94,26 +94,47 @@
     transition: transform 0.15s ease, background 0.15s ease;
   }
   .icon-btn:active { transform: scale(0.93); }
-  #micBtn {
+
+  .media-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .media-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 12px 4px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--muted);
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .media-btn:active { transform: scale(0.95); }
+  .media-icon { font-size: 22px; line-height: 1; }
+  .media-label { font-size: 11.5px; }
+  .media-btn-primary {
     background: var(--accent);
+    border-color: var(--accent);
     color: #1a1a1a;
   }
-  #micBtn.listening {
+  .media-btn-primary .media-label { color: #1a1a1a; }
+  .media-btn-primary.listening {
     background: var(--danger);
+    border-color: var(--danger);
     color: #fff;
     animation: pulse 1.1s infinite;
   }
+  .media-btn-primary.listening .media-label { color: #fff; }
   #camBtn {
-    background: var(--panel-2);
-    border: 1px solid var(--accent-dim);
+    border-color: var(--accent-dim);
     color: var(--accent);
   }
-  #uploadBtn {
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    color: var(--muted);
-  }
-  #camBtn.busy, #uploadBtn.busy {
+  .media-btn.busy {
     animation: pulse2 1.1s infinite;
   }
   @keyframes pulse2 {
@@ -176,6 +197,58 @@
   }
   #cropConfirm { background: var(--accent); color: #1a1a1a; }
   #cropCancel { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
+
+  .secondary-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .secondary-btn {
+    flex: 1;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 10px;
+    padding: 9px 4px;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: transform 0.15s ease;
+  }
+  .secondary-btn:active { transform: scale(0.96); }
+  .secondary-btn.busy { opacity: 0.6; animation: pulse2 1.1s infinite; }
+  .danger-btn { color: var(--danger); border-color: rgba(224,90,90,0.35); }
+  .extra-count-badge {
+    text-align: center;
+    font-size: 11.5px;
+    color: var(--good);
+  }
+
+  #confirmOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  #confirmOverlay.active { display: flex; }
+  #confirmBox {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 22px 18px;
+    max-width: 360px;
+    width: 100%;
+  }
+  #confirmMessage {
+    text-align: center;
+    font-size: 15px;
+    margin-bottom: 18px;
+    line-height: 1.7;
+  }
+  #confirmOk { background: var(--danger); color: #fff; }
+  #confirmCancel { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
   #clearBtn {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -280,20 +353,37 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>🔍 بحث اللوحات — طـه</h1>
+    <h1>🔍 بحث اللوحات </h1>
     <p id="dbCount">جارٍ تحميل قاعدة البيانات...</p>
   </header>
+
+  <div class="secondary-actions">
+    <button id="excelBtn" class="secondary-btn">📊 إضافة بيانات من إكسيل</button>
+    <button id="clearDataBtn" class="secondary-btn danger-btn">🗑️ مسح البيانات المضافة</button>
+    <input id="excelInput" type="file" accept=".xlsx,.xls" style="display:none" />
+  </div>
+  <div id="extraCountBadge" class="extra-count-badge" style="display:none"></div>
 
   <div class="search-box">
     <div class="input-row">
       <button id="clearBtn" class="icon-btn" title="مسح">✕</button>
-      <input id="plateInput" type="text" placeholder="اكتب رقم اللوحة أو اضغط المايك/الكاميرا" autocomplete="off" />
-      <button id="camBtn" class="icon-btn" title="التقاط صورة">📷</button>
-      <button id="uploadBtn" class="icon-btn" title="رفع صورة">🖼️</button>
-      <button id="micBtn" class="icon-btn" title="بحث صوتي">🎤</button>
+      <input id="plateInput" type="text" placeholder="اكتب رقم اللوحة" autocomplete="off" />
+    </div>
+
+    <div class="media-actions">
+      <button id="camBtn" class="media-btn" title="التقاط صورة">
+        <span class="media-icon">📷</span><span class="media-label">كاميرا</span>
+      </button>
+      <button id="uploadBtn" class="media-btn" title="رفع صورة">
+        <span class="media-icon">🖼️</span><span class="media-label">صورة</span>
+      </button>
+      <button id="micBtn" class="media-btn media-btn-primary" title="بحث صوتي">
+        <span class="media-icon">🎤</span><span class="media-label">صوت</span>
+      </button>
       <input id="camInput" type="file" accept="image/*" capture="environment" style="display:none" />
       <input id="uploadInput" type="file" accept="image/*" style="display:none" />
     </div>
+
     <div id="statusLine" class="status-line"></div>
   </div>
 
@@ -309,10 +399,21 @@
       <button id="cropConfirm">قص وابحث ✅</button>
     </div>
   </div>
+
+  <div id="confirmOverlay">
+    <div id="confirmBox">
+      <div id="confirmMessage">هل تريد مسح كل البيانات المضافة؟</div>
+      <div class="crop-actions">
+        <button id="confirmCancel">إلغاء</button>
+        <button id="confirmOk">نعم، امسح ✅</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 (async function () {
   const dbCountEl = document.getElementById('dbCount');
@@ -361,7 +462,59 @@
   }
   // rawData: [ [plate, type, bank, chassis], ... ]
 
-  dbCountEl.textContent = 'قاعدة البيانات: ' + rawData.length.toLocaleString('ar-EG') + ' سجل';
+  // ---- IndexedDB: locally-added records (per-device only, not shared) ----
+  const DB_NAME = 'plateSearchExtraDB';
+  const STORE_NAME = 'extra';
+
+  function openExtraDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: 'dedupeKey' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function getAllExtra() {
+    try {
+      const db = await openExtraDB();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function putExtraRecords(records) {
+    const db = await openExtraDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      records.forEach(r => store.put(r));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function clearAllExtra() {
+    const db = await openExtraDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
 
   const input = document.getElementById('plateInput');
   const micBtn = document.getElementById('micBtn');
@@ -483,14 +636,43 @@
     return normalizeArabicLetters(out).toLowerCase();
   }
 
-  // Pre-normalize the DB once for fast search
-  const normDB = rawData.map(row => ({
+  // Pre-normalize the base DB once for fast search
+  let normDB = rawData.map(row => ({
     plate: row[0] || '',
     type: row[1] || '',
     bank: row[2] || '',
     chassis: row[3] || '',
-    normPlate: normalizeText(row[0] || '')
+    normPlate: normalizeText(row[0] || ''),
+    source: 'base'
   }));
+
+  const extraCountBadge = document.getElementById('extraCountBadge');
+
+  function updateCountDisplay() {
+    const baseCount = normDB.filter(r => r.source === 'base').length;
+    const extraCount = normDB.filter(r => r.source === 'extra').length;
+    dbCountEl.textContent = 'قاعدة البيانات: ' + baseCount.toLocaleString('ar-EG') + ' سجل';
+    if (extraCount > 0) {
+      extraCountBadge.style.display = 'block';
+      extraCountBadge.textContent = '➕ ' + extraCount.toLocaleString('ar-EG') + ' سجل إضافي محفوظ على هذا الجهاز';
+    } else {
+      extraCountBadge.style.display = 'none';
+    }
+  }
+
+  // Load any locally-added records from a previous Excel upload on this device
+  try {
+    const extraRecords = await getAllExtra();
+    for (const r of extraRecords) {
+      normDB.push({
+        plate: r.plate || '', type: r.type || '', bank: r.bank || '',
+        chassis: r.chassis || '', normPlate: r.normPlate || normalizeText(r.plate || ''),
+        source: 'extra'
+      });
+    }
+  } catch (e) { /* ignore — extra data is optional */ }
+
+  updateCountDisplay();
 
   function renderEmpty() {
     resultsEl.innerHTML = '<div class="empty-state">اكتب رقم اللوحة يدويًا، أو اضغط 🎤 وقول الحروف والأرقام<br>مثال: «دال عين 3 6 9 8»</div>';
@@ -498,7 +680,7 @@
 
   function renderResults(query) {
     const token = transcriptToPlateToken(query);
-    if (!token) { renderEmpty(); return; }
+    if (!token) { renderEmpty(); return false; }
 
     const exact = [];
     const partial = [];
@@ -525,7 +707,7 @@
 
     if (list.length === 0) {
       resultsEl.innerHTML = '<div class="no-results">⚠️ مفيش نتيجة مطابقة لـ «' + query + '»<br>جرب تتأكد من الحروف أو الأرقام</div>';
-      return;
+      return false;
     }
 
     const isExact = exact.length > 0;
@@ -540,10 +722,21 @@
       html += '</div>';
     }
     resultsEl.innerHTML = html;
+
+    if (isExact) vibrateFound();
+    return isExact;
   }
 
   function fieldRow(label, value) {
     return '<div class="field-row"><span class="field-label">' + label + '</span><span class="field-value">' + escapeHtml(String(value)) + '</span></div>';
+  }
+
+  // Long vibration (10s) to signal a confirmed exact match — useful when the
+  // person's attention is on the car/plate, not the screen.
+  function vibrateFound() {
+    if (navigator.vibrate) {
+      try { navigator.vibrate(10000); } catch (e) { /* ignore */ }
+    }
   }
 
   function escapeHtml(str) {
@@ -566,10 +759,13 @@
     input.focus();
   });
 
-  // ---- Voice recognition ----
+  // ---- Voice recognition (continuous multi-query mode) ----
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
   let listening = false;
+  let micPermissionGranted = false;
+  let continuousMode = false;   // true while the user wants to keep speaking plate after plate
+  let restartTimer = null;
 
   if (SpeechRecognition) {
     recognition = new SpeechRecognition();
@@ -591,21 +787,50 @@
         transcript += event.results[i][0].transcript;
       }
       input.value = transcript;
-      if (event.results[event.results.length - 1].isFinal) {
-        renderResults(transcript);
-        statusLine.textContent = '✅ سمعت: ' + transcript;
-        statusLine.className = 'status-line ok-text';
+      const lastResult = event.results[event.results.length - 1];
+
+      if (lastResult.isFinal) {
+        const found = renderResults(transcript);
+        if (found) {
+          // Exact match — stop the loop, keep the result on screen.
+          statusLine.textContent = '✅ سمعت: ' + transcript;
+          statusLine.className = 'status-line ok-text';
+          continuousMode = false;
+        } else {
+          // Not found — clear the box and keep listening so the person can
+          // just say the next plate right away without pressing the mic again.
+          statusLine.textContent = '🔁 مفيش نتيجة لـ «' + transcript + '» — قول رقم تاني...';
+          statusLine.className = 'status-line listening-text';
+          input.value = '';
+        }
+      } else {
+        // Quick live feedback while still speaking — try searching the
+        // interim transcript too; if it already matches exactly, no need
+        // to wait for the "final" event, which cuts perceived latency a lot.
+        const found = renderResults(transcript);
+        if (found) {
+          statusLine.textContent = '✅ سمعت: ' + transcript;
+          statusLine.className = 'status-line ok-text';
+          continuousMode = false;
+          try { recognition.stop(); } catch (e) {}
+        }
       }
     };
 
     recognition.onerror = (event) => {
+      if (event.error === 'no-speech') {
+        // Common and harmless in continuous mode — just try again silently.
+        if (continuousMode) return;
+      }
       let msg = 'خطأ: ' + event.error;
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         msg = '⚠️ الإذن مرفوض — دوس على 🔒 بجانب العنوان في المتصفح، وفعّل "Microphone"، وارجع افتح الصفحة تاني';
+        continuousMode = false;
       } else if (event.error === 'no-speech') {
         msg = '⚠️ مسمعتش حاجة — جرب تاني وقول بصوت أعلى';
       } else if (event.error === 'audio-capture') {
         msg = '⚠️ مفيش مايك متاح على الجهاز ده';
+        continuousMode = false;
       } else if (event.error === 'network') {
         msg = '⚠️ خطأ شبكة — التعرف على الصوت محتاج إنترنت';
       }
@@ -618,6 +843,13 @@
     recognition.onend = () => {
       listening = false;
       micBtn.classList.remove('listening');
+      if (continuousMode) {
+        // Restart almost immediately so multi-plate voice search feels
+        // seamless instead of requiring a fresh tap on the mic each time.
+        clearTimeout(restartTimer);
+        restartTimer = setTimeout(() => { startListening(); }, 250);
+        return;
+      }
       if (!statusLine.classList.contains('ok-text')) {
         statusLine.textContent = '';
         statusLine.className = 'status-line';
@@ -625,32 +857,35 @@
     };
 
     async function startListening() {
-      // Explicitly request mic permission first — inside an iframe (like an
-      // artifact preview) the SpeechRecognition API sometimes fails silently
-      // unless getUserMedia has already been granted in this frame.
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      // Request mic permission once and remember it — re-checking every
+      // single loop iteration adds a noticeable delay to continuous mode.
+      if (!micPermissionGranted && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
           stream.getTracks().forEach(t => t.stop());
+          micPermissionGranted = true;
         } catch (permErr) {
           statusLine.textContent = '⚠️ مرفوض إذن المايك (' + (permErr.name || permErr.message) + ') — دوس على أيقونة القفل بجانب العنوان وفعّل المايك يدويًا';
           statusLine.className = 'status-line';
+          continuousMode = false;
           return;
         }
       }
       try {
         recognition.start();
       } catch (e) {
-        statusLine.textContent = '⚠️ خطأ: ' + (e.name || e.message || 'غير معروف');
-        statusLine.className = 'status-line';
+        // "already started" can happen if a restart race occurs — ignore it.
       }
     }
 
     micBtn.addEventListener('click', () => {
-      if (listening) {
-        recognition.stop();
+      if (listening || continuousMode) {
+        continuousMode = false;
+        clearTimeout(restartTimer);
+        try { recognition.stop(); } catch (e) {}
         return;
       }
+      continuousMode = true;
       startListening();
     });
   } else {
@@ -772,12 +1007,13 @@
 
       if (!ocrWorker) {
         statusLine.textContent = '📷 جارٍ تجهيز محرك القراءة (أول مرة فقط)...';
-        ocrWorker = await Tesseract.createWorker('ara+eng');
-        // Restrict recognition to plate-relevant characters only (digits + Arabic/Latin
-        // letters), which cuts down heavily on garbage output from background clutter.
+        ocrWorker = await Tesseract.createWorker('ara');
+        // Saudi plates in this dataset are recorded in Arabic letters + digits
+        // only — restricting to that character set (no Latin) removes most
+        // of the noise OCR otherwise picks up from backgrounds/other text.
         await ocrWorker.setParameters({
           tessedit_char_whitelist:
-            '0123456789٠١٢٣٤٥٦٧٨٩ابتثجحخدذرزسشصضطظعغفقكلمنهويىءأإآؤئة ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+            '0123456789٠١٢٣٤٥٦٧٨٩ابتثجحخدذرزسشصضطظعغفقكلمنهويىءأإآؤئة '
         });
       }
 
@@ -814,6 +1050,143 @@
     const file = e.target.files[0];
     openCropper(file, uploadBtn);
     uploadInput.value = '';
+  });
+
+  // ---- Excel upload: merge new records into the local (per-device) DB ----
+  const excelBtn = document.getElementById('excelBtn');
+  const excelInput = document.getElementById('excelInput');
+  const clearDataBtn = document.getElementById('clearDataBtn');
+  const confirmOverlay = document.getElementById('confirmOverlay');
+  const confirmOk = document.getElementById('confirmOk');
+  const confirmCancel = document.getElementById('confirmCancel');
+  const confirmMessage = document.getElementById('confirmMessage');
+
+  excelBtn.addEventListener('click', () => excelInput.click());
+
+  function parseWorkbookToRecords(workbook) {
+    const records = [];
+    for (const sheetName of workbook.SheetNames) {
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+      if (!rows || rows.length < 2) continue;
+
+      let headerIdx = -1;
+      const cols = {};
+      for (let i = 0; i < Math.min(rows.length, 6); i++) {
+        const row = (rows[i] || []).map(c => String(c || '').trim());
+        const idx = row.findIndex(c => c.indexOf('لوحة') !== -1);
+        if (idx !== -1) {
+          headerIdx = i;
+          row.forEach((c, ci) => {
+            if (c.indexOf('لوحة') !== -1) cols.plate = ci;
+            else if (c.indexOf('نوع') !== -1) cols.type = ci;
+            else if (c.indexOf('بنك') !== -1) cols.bank = ci;
+            else if (c.indexOf('هيكل') !== -1 || c.indexOf('شاصي') !== -1) cols.chassis = ci;
+          });
+          break;
+        }
+      }
+      if (headerIdx === -1 || cols.plate === undefined) continue;
+
+      for (let i = headerIdx + 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row) continue;
+        const plate = String(row[cols.plate] || '').trim();
+        if (!plate) continue;
+        records.push({
+          plate,
+          type: cols.type !== undefined ? String(row[cols.type] || '').trim() : '',
+          bank: cols.bank !== undefined ? String(row[cols.bank] || '').trim() : '',
+          chassis: cols.chassis !== undefined ? String(row[cols.chassis] || '').trim() : ''
+        });
+      }
+    }
+    return records;
+  }
+
+  excelInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+
+    excelBtn.classList.add('busy');
+    statusLine.textContent = '📊 جارٍ قراءة ملف الإكسيل...';
+    statusLine.className = 'status-line listening-text';
+
+    try {
+      if (typeof XLSX === 'undefined') {
+        throw new Error('مكتبة قراءة الإكسيل لم تُحمَّل — تأكد من الاتصال بالإنترنت');
+      }
+      const buf = await file.arrayBuffer();
+      const workbook = XLSX.read(buf, { type: 'array' });
+      const parsed = parseWorkbookToRecords(workbook);
+
+      if (parsed.length === 0) {
+        statusLine.textContent = '⚠️ مقدرتش ألاقي عمود "اللوحة" في أي شيت — تأكد من شكل الأعمدة';
+        statusLine.className = 'status-line';
+        return;
+      }
+
+      const existingKeys = new Set(normDB.map(r => r.normPlate + '|' + normalizeText(r.chassis || '')));
+      const toAdd = [];
+      for (const rec of parsed) {
+        const normPlate = normalizeText(rec.plate);
+        const dedupeKey = normPlate + '|' + normalizeText(rec.chassis || '');
+        if (existingKeys.has(dedupeKey)) continue;
+        existingKeys.add(dedupeKey);
+        toAdd.push({ dedupeKey, plate: rec.plate, type: rec.type, bank: rec.bank, chassis: rec.chassis, normPlate });
+      }
+
+      if (toAdd.length === 0) {
+        statusLine.textContent = 'ℹ️ كل السجلات في الملف موجودة بالفعل — مفيش حاجة جديدة اتضافت';
+        statusLine.className = 'status-line';
+        return;
+      }
+
+      await putExtraRecords(toAdd);
+      for (const r of toAdd) {
+        normDB.push({ plate: r.plate, type: r.type, bank: r.bank, chassis: r.chassis, normPlate: r.normPlate, source: 'extra' });
+      }
+      updateCountDisplay();
+      statusLine.textContent = '✅ تمت إضافة ' + toAdd.length.toLocaleString('ar-EG') + ' سجل جديد (محفوظ على هذا الجهاز فقط)';
+      statusLine.className = 'status-line ok-text';
+    } catch (err) {
+      statusLine.textContent = '⚠️ خطأ في قراءة الملف: ' + (err.message || err);
+      statusLine.className = 'status-line';
+    } finally {
+      excelBtn.classList.remove('busy');
+    }
+  });
+
+  // ---- Clear locally-added data (with confirmation) ----
+  clearDataBtn.addEventListener('click', () => {
+    const extraCount = normDB.filter(r => r.source === 'extra').length;
+    if (extraCount === 0) {
+      statusLine.textContent = 'ℹ️ مفيش بيانات إضافية متخزنة على هذا الجهاز أصلًا';
+      statusLine.className = 'status-line';
+      return;
+    }
+    confirmMessage.textContent = 'هل تريد مسح كل البيانات المضافة (' + extraCount.toLocaleString('ar-EG') + ' سجل) من هذا الجهاز؟ القاعدة الأساسية لن تتأثر.';
+    confirmOverlay.classList.add('active');
+  });
+
+  confirmCancel.addEventListener('click', () => {
+    confirmOverlay.classList.remove('active');
+  });
+
+  confirmOk.addEventListener('click', async () => {
+    confirmOverlay.classList.remove('active');
+    try {
+      await clearAllExtra();
+      normDB = normDB.filter(r => r.source !== 'extra');
+      updateCountDisplay();
+      statusLine.textContent = '✅ اتمسحت كل البيانات المضافة';
+      statusLine.className = 'status-line ok-text';
+      renderEmpty();
+    } catch (err) {
+      statusLine.textContent = '⚠️ خطأ في المسح: ' + (err.message || err);
+      statusLine.className = 'status-line';
+    }
   });
 
   renderEmpty();
