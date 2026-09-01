@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سجل البحث - طـه</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --border: #2a2f3a;
+    --text: #eef0f4;
+    --muted: #9aa2b1;
+    --accent: #d4af37;
+    --accent-dim: #8a742a;
+    --good: #4caf7d;
+    --danger: #e05a5a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  .wrap {
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 20px 16px 60px;
+  }
+  header {
+    text-align: center;
+    margin-bottom: 18px;
+  }
+  header h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+  }
+  header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .nav-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .nav-link {
+    flex: 1;
+    text-align: center;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 9px 4px;
+    font-size: 13px;
+    text-decoration: none;
+    transition: transform 0.15s ease;
+  }
+  .nav-link:active { transform: scale(0.96); }
+
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .toolbar button {
+    flex: 1;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 10px;
+    padding: 9px 4px;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .toolbar .danger-btn { color: var(--danger); border-color: rgba(224,90,90,0.35); }
+
+  .status-line {
+    min-height: 18px;
+    font-size: 12.5px;
+    color: var(--muted);
+    text-align: center;
+    margin-bottom: 10px;
+  }
+  .status-line.ok-text { color: var(--good); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  th, td {
+    padding: 10px 8px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    background: var(--panel-2);
+    color: var(--accent);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  td.plate-cell { font-weight: 700; color: var(--accent); direction: rtl; }
+  td.chassis-cell { direction: ltr; font-size: 12px; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+  .match-badge {
+    display: inline-block;
+    font-size: 10.5px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: var(--panel-2);
+    color: var(--muted);
+  }
+  .empty-state {
+    text-align: center;
+    color: var(--muted);
+    padding: 30px 10px;
+    font-size: 14px;
+    line-height: 1.8;
+  }
+
+  #confirmOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  #confirmOverlay.active { display: flex; }
+  #confirmBox {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 22px 18px;
+    max-width: 360px;
+    width: 100%;
+  }
+  #confirmMessage {
+    text-align: center;
+    font-size: 15px;
+    margin-bottom: 18px;
+    line-height: 1.7;
+  }
+  .confirm-actions {
+    display: flex;
+    gap: 10px;
+  }
+  .confirm-actions button {
+    flex: 1;
+    padding: 12px 0;
+    border-radius: 10px;
+    border: none;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #confirmOk { background: var(--danger); color: #fff; }
+  #confirmCancel { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
+
+  @media (max-width: 480px) {
+    table, thead, tbody, th, td, tr { display: block; }
+    thead { display: none; }
+    tr {
+      background: var(--panel-2);
+      border-radius: 10px;
+      margin-bottom: 10px;
+      padding: 8px;
+    }
+    td {
+      border: none;
+      text-align: right;
+      padding: 4px 8px;
+      display: flex;
+      justify-content: space-between;
+    }
+    td::before {
+      content: attr(data-label);
+      color: var(--muted);
+      font-size: 11px;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📋 سجل عمليات البحث</h1>
+    <p id="historyCount">جارٍ تحميل السجل...</p>
+  </header>
+
+  <div class="nav-row">
+    <a href="index.html" class="nav-link">🔍 بحث باللوحة</a>
+    <a href="chassis.html" class="nav-link">🔧 بحث بالهيكل</a>
+  </div>
+
+  <div class="toolbar">
+    <button id="clearHistoryBtn" class="danger-btn">🗑️ مسح السجل فقط</button>
+  </div>
+
+  <div id="statusLine" class="status-line"></div>
+
+  <div id="tableWrap"></div>
+</div>
+
+<div id="confirmOverlay">
+  <div id="confirmBox">
+    <div id="confirmMessage">هل تريد مسح سجل عمليات البحث؟</div>
+    <div class="confirm-actions">
+      <button id="confirmCancel">إلغاء</button>
+      <button id="confirmOk">نعم، امسح ✅</button>
+    </div>
+  </div>
+</div>
+
+<script src="db.js"></script>
+<script>
+(async function () {
+  const historyCountEl = document.getElementById('historyCount');
+  const tableWrap = document.getElementById('tableWrap');
+  const statusLine = document.getElementById('statusLine');
+  const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+  const confirmOverlay = document.getElementById('confirmOverlay');
+  const confirmOk = document.getElementById('confirmOk');
+  const confirmCancel = document.getElementById('confirmCancel');
+
+  window.addEventListener('error', (e) => {
+    if (historyCountEl.textContent.indexOf('جارٍ تحميل') === 0) {
+      historyCountEl.textContent = '⚠️ خطأ غير متوقع: ' + (e.message || e.error);
+    }
+  });
+
+  function formatDate(iso) {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' });
+    } catch (e) {
+      return iso;
+    }
+  }
+
+  async function loadAndRender() {
+    let history;
+    try {
+      history = await getAllHistory();
+    } catch (err) {
+      historyCountEl.textContent = '⚠️ تعذر تحميل السجل (' + err.message + ')';
+      return;
+    }
+
+    // Most recent first
+    history.sort((a, b) => (b.searchedAt || '').localeCompare(a.searchedAt || ''));
+
+    historyCountEl.textContent = 'إجمالي عمليات البحث الناجحة: ' + history.length.toLocaleString('ar-EG');
+
+    if (history.length === 0) {
+      tableWrap.innerHTML = '<div class="empty-state">مفيش عمليات بحث ناجحة متسجلة لسه.<br>أي تطابق تام في صفحة البحث باللوحة أو الهيكل بيتسجل هنا تلقائيًا.</div>';
+      return;
+    }
+
+    let html = '<table><thead><tr>' +
+      '<th>اللوحة</th><th>النوع</th><th>البنك</th><th>الهيكل</th><th>طريقة البحث</th><th>الوقت والتاريخ</th>' +
+      '</tr></thead><tbody>';
+
+    for (const h of history) {
+      const matchLabel = h.matchedBy === 'chassis' ? 'بالهيكل' : 'باللوحة';
+      html += '<tr>' +
+        '<td data-label="اللوحة" class="plate-cell">' + escapeHtml(h.plate || '') + '</td>' +
+        '<td data-label="النوع">' + escapeHtml(h.type || '') + '</td>' +
+        '<td data-label="البنك">' + escapeHtml(h.bank || '') + '</td>' +
+        '<td data-label="الهيكل" class="chassis-cell">' + escapeHtml(h.chassis || '') + '</td>' +
+        '<td data-label="طريقة البحث"><span class="match-badge">' + matchLabel + '</span></td>' +
+        '<td data-label="الوقت والتاريخ">' + formatDate(h.searchedAt) + '</td>' +
+        '</tr>';
+    }
+    html += '</tbody></table>';
+    tableWrap.innerHTML = html;
+  }
+
+  clearHistoryBtn.addEventListener('click', async () => {
+    let history;
+    try { history = await getAllHistory(); } catch (e) { history = []; }
+    if (history.length === 0) {
+      statusLine.textContent = 'ℹ️ السجل فارغ أصلًا';
+      statusLine.className = 'status-line';
+      return;
+    }
+    document.getElementById('confirmMessage').textContent =
+      'هل تريد مسح سجل عمليات البحث (' + history.length.toLocaleString('ar-EG') + ' عملية)؟ بيانات اللوحات نفسها لن تتأثر.';
+    confirmOverlay.classList.add('active');
+  });
+
+  confirmCancel.addEventListener('click', () => {
+    confirmOverlay.classList.remove('active');
+  });
+
+  confirmOk.addEventListener('click', async () => {
+    confirmOverlay.classList.remove('active');
+    try {
+      await clearAllHistory();
+      statusLine.textContent = '✅ اتمسح السجل';
+      statusLine.className = 'status-line ok-text';
+      loadAndRender();
+    } catch (err) {
+      statusLine.textContent = '⚠️ خطأ في المسح: ' + (err.message || err);
+      statusLine.className = 'status-line';
+    }
+  });
+
+  loadAndRender();
+})();
+</script>
+</body>
+</html>
