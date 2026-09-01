@@ -114,6 +114,85 @@
     color: var(--muted);
   }
   .icon-btn:active { transform: scale(0.93); }
+ 
+  .media-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .media-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 12px 4px;
+    border-radius: 12px;
+    border: 1px solid var(--accent-dim);
+    background: var(--panel-2);
+    color: var(--accent);
+    cursor: pointer;
+    transition: transform 0.15s ease;
+  }
+  .media-btn:active { transform: scale(0.95); }
+  .media-icon { font-size: 22px; line-height: 1; }
+  .media-label { font-size: 11.5px; }
+  .media-btn.busy { animation: pulse2 1.1s infinite; }
+  @keyframes pulse2 {
+    0% { box-shadow: 0 0 0 0 rgba(212,175,55,0.55); }
+    70% { box-shadow: 0 0 0 12px rgba(212,175,55,0); }
+    100% { box-shadow: 0 0 0 0 rgba(212,175,55,0); }
+  }
+ 
+  #cropOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.92);
+    z-index: 999;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+  }
+  #cropOverlay.active { display: flex; }
+  #cropCanvasWrap {
+    position: relative;
+    max-width: 100%;
+    max-height: 65vh;
+    touch-action: none;
+  }
+  #cropCanvas {
+    max-width: 100%;
+    max-height: 65vh;
+    display: block;
+    border-radius: 8px;
+    touch-action: none;
+  }
+  .crop-hint {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    margin: 12px 0 16px;
+    line-height: 1.6;
+  }
+  .crop-actions {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    max-width: 400px;
+  }
+  .crop-actions button {
+    flex: 1;
+    padding: 12px 0;
+    border-radius: 10px;
+    border: none;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #cropConfirm { background: var(--accent); color: #1a1a1a; }
+  #cropCancel { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
   .status-line {
     min-height: 18px;
     font-size: 12.5px;
@@ -178,23 +257,47 @@
     <h1>🔧 بحث بالهيكل / الشاصي</h1>
     <p id="dbCount">جارٍ تحميل قاعدة البيانات...</p>
   </header>
-
+ 
   <div class="nav-row">
     <a href="index.html" class="nav-link">🔍 بحث باللوحة</a>
     <a href="history.html" class="nav-link">📋 عرض السجل</a>
   </div>
-
+ 
   <div class="search-box">
     <div class="input-row">
       <button id="clearBtn" class="icon-btn" title="مسح">✕</button>
       <input id="chassisInput" type="text" placeholder="اكتب رقم الهيكل (الشاصي)" autocomplete="off" />
     </div>
+ 
+    <div class="media-actions">
+      <button id="camBtn" class="media-btn" title="التقاط صورة">
+        <span class="media-icon">📷</span><span class="media-label">كاميرا</span>
+      </button>
+      <button id="uploadBtn" class="media-btn" title="رفع صورة">
+        <span class="media-icon">🖼️</span><span class="media-label">صورة</span>
+      </button>
+      <input id="camInput" type="file" accept="image/*" capture="environment" style="display:none" />
+      <input id="uploadInput" type="file" accept="image/*" style="display:none" />
+    </div>
+ 
     <div id="statusLine" class="status-line"></div>
   </div>
-
+ 
   <div id="results" class="results"></div>
+ 
+  <div id="cropOverlay">
+    <div id="cropCanvasWrap">
+      <canvas id="cropCanvas"></canvas>
+    </div>
+    <div class="crop-hint">حدد بإصبعك مكان رقم الهيكل بالظبط، وكل ما كانت المساحة أصغر وأدق كل ما كانت القراءة أفضل</div>
+    <div class="crop-actions">
+      <button id="cropCancel">إلغاء</button>
+      <button id="cropConfirm">قص وابحث ✅</button>
+    </div>
+  </div>
 </div>
-
+ 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
 <script src="db.js"></script>
 <script>
 (async function () {
@@ -203,7 +306,7 @@
   const clearBtn = document.getElementById('clearBtn');
   const statusLine = document.getElementById('statusLine');
   const resultsEl = document.getElementById('results');
-
+ 
   window.addEventListener('error', (e) => {
     if (dbCountEl.textContent.indexOf('جارٍ تحميل') === 0) {
       dbCountEl.textContent = '⚠️ خطأ غير متوقع: ' + (e.message || e.error);
@@ -214,7 +317,7 @@
       dbCountEl.textContent = '⚠️ خطأ غير متوقع: ' + (e.reason && e.reason.message ? e.reason.message : e.reason);
     }
   });
-
+ 
   let rawRecords;
   try {
     const alreadySeeded = await getMeta('seeded');
@@ -255,33 +358,33 @@
     dbCountEl.textContent = '⚠️ تعذر تحميل قاعدة البيانات (' + err.message + ')';
     return;
   }
-
+ 
   const normDB = rawRecords.map(r => ({
     plate: r.plate || '', type: r.type || '', bank: r.bank || '',
     chassis: r.chassis || '', normChassis: normalizeText(r.chassis || '')
   })).filter(r => r.normChassis);
-
+ 
   dbCountEl.textContent = 'قاعدة البيانات: ' + normDB.length.toLocaleString('ar-EG') + ' سجل فيه رقم هيكل';
-
+ 
   function fieldRow(label, value) {
     return '<div class="field-row"><span class="field-label">' + label + '</span><span class="field-value">' + escapeHtml(String(value)) + '</span></div>';
   }
-
+ 
   function renderEmpty() {
     resultsEl.innerHTML = '<div class="empty-state">اكتب رقم الهيكل (الشاصي) كامل أو جزء منه</div>';
   }
-
+ 
   function renderResults(query) {
     const token = normalizeText(query);
     if (!token) { renderEmpty(); return; }
-
+ 
     const exact = [];
     const partial = [];
     for (const row of normDB) {
       if (row.normChassis === token) exact.push(row);
       else if (row.normChassis.includes(token)) partial.push(row);
     }
-
+ 
     let list = exact.length ? exact : partial.slice(0, 30);
     const seen = new Set();
     list = list.filter(r => {
@@ -290,12 +393,12 @@
       seen.add(key);
       return true;
     });
-
+ 
     if (list.length === 0) {
       resultsEl.innerHTML = '<div class="no-results">⚠️ مفيش نتيجة مطابقة لـ «' + escapeHtml(query) + '»</div>';
       return;
     }
-
+ 
     const isExact = exact.length > 0;
     let html = '<div class="count-badge">' + (isExact ? '✅ تطابق تام' : '🔎 نتائج قريبة') + ' — ' + list.length + ' نتيجة</div>';
     for (const r of list) {
@@ -307,7 +410,7 @@
       html += '</div>';
     }
     resultsEl.innerHTML = html;
-
+ 
     if (isExact) {
       vibrateFound();
       for (const r of exact) {
@@ -318,7 +421,7 @@
       }
     }
   }
-
+ 
   let debounceTimer = null;
   input.addEventListener('input', () => {
     clearTimeout(debounceTimer);
@@ -326,7 +429,7 @@
     if (!val.trim()) { renderEmpty(); return; }
     debounceTimer = setTimeout(() => renderResults(val), 150);
   });
-
+ 
   clearBtn.addEventListener('click', () => {
     input.value = '';
     renderEmpty();
@@ -334,9 +437,204 @@
     statusLine.className = 'status-line';
     input.focus();
   });
-
+ 
+  // ---- Image (OCR) search for chassis numbers — Latin letters + digits only,
+  // since VIN/chassis numbers on Saudi registration docs are written in Latin
+  // (e.g. JTNA14CK9S3024218), unlike plate numbers which use Arabic letters. ----
+  const camBtn = document.getElementById('camBtn');
+  const camInput = document.getElementById('camInput');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const uploadInput = document.getElementById('uploadInput');
+  const cropOverlay = document.getElementById('cropOverlay');
+  const cropCanvas = document.getElementById('cropCanvas');
+  const cropConfirm = document.getElementById('cropConfirm');
+  const cropCancel = document.getElementById('cropCancel');
+  let ocrWorker = null;
+  let cropState = null;
+ 
+  camBtn.addEventListener('click', () => camInput.click());
+  uploadBtn.addEventListener('click', () => uploadInput.click());
+ 
+  function openCropper(file, triggerBtn) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        cropCanvas.width = img.naturalWidth;
+        cropCanvas.height = img.naturalHeight;
+        const ctx = cropCanvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        cropState = { img, ctx, sel: null, dragging: false, startX: 0, startY: 0, triggerBtn };
+        cropOverlay.classList.add('active');
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+ 
+  function getCanvasPos(e) {
+    const rect = cropCanvas.getBoundingClientRect();
+    const scaleX = cropCanvas.width / rect.width;
+    const scaleY = cropCanvas.height / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  }
+ 
+  function redrawWithSelection() {
+    if (!cropState) return;
+    const { ctx, img, sel } = cropState;
+    ctx.drawImage(img, 0, 0, cropCanvas.width, cropCanvas.height);
+    if (sel) {
+      ctx.strokeStyle = '#d4af37';
+      ctx.lineWidth = Math.max(3, cropCanvas.width * 0.005);
+      ctx.strokeRect(sel.x, sel.y, sel.w, sel.h);
+      ctx.fillStyle = 'rgba(212,175,55,0.18)';
+      ctx.fillRect(sel.x, sel.y, sel.w, sel.h);
+    }
+  }
+ 
+  cropCanvas.addEventListener('pointerdown', (e) => {
+    if (!cropState) return;
+    const p = getCanvasPos(e);
+    cropState.dragging = true;
+    cropState.startX = p.x;
+    cropState.startY = p.y;
+    cropState.sel = { x: p.x, y: p.y, w: 0, h: 0 };
+  });
+  cropCanvas.addEventListener('pointermove', (e) => {
+    if (!cropState || !cropState.dragging) return;
+    const p = getCanvasPos(e);
+    const x = Math.min(p.x, cropState.startX);
+    const y = Math.min(p.y, cropState.startY);
+    const w = Math.abs(p.x - cropState.startX);
+    const h = Math.abs(p.y - cropState.startY);
+    cropState.sel = { x, y, w, h };
+    redrawWithSelection();
+  });
+  cropCanvas.addEventListener('pointerup', () => { if (cropState) cropState.dragging = false; });
+  cropCanvas.addEventListener('pointercancel', () => { if (cropState) cropState.dragging = false; });
+ 
+  cropCancel.addEventListener('click', () => {
+    cropOverlay.classList.remove('active');
+    cropState = null;
+  });
+ 
+  cropConfirm.addEventListener('click', () => {
+    if (!cropState) return;
+    const { sel, triggerBtn } = cropState;
+    cropOverlay.classList.remove('active');
+ 
+    const cropped = document.createElement('canvas');
+    if (sel && sel.w > 15 && sel.h > 10) {
+      cropped.width = sel.w;
+      cropped.height = sel.h;
+      cropped.getContext('2d').drawImage(cropCanvas, sel.x, sel.y, sel.w, sel.h, 0, 0, sel.w, sel.h);
+    } else {
+      cropped.width = cropCanvas.width;
+      cropped.height = cropCanvas.height;
+      cropped.getContext('2d').drawImage(cropCanvas, 0, 0);
+    }
+    const out = preprocessForOCR(cropped);
+    out.toBlob((blob) => { runOCR(blob, triggerBtn); }, 'image/png');
+    cropState = null;
+  });
+ 
+  // Upscale small crops + binarize to black/white for much better OCR accuracy
+  // on small, low-contrast photos straight from a phone camera.
+  function preprocessForOCR(sourceCanvas) {
+    const MIN_DIM = 500;
+    let scale = 1;
+    const shortSide = Math.min(sourceCanvas.width, sourceCanvas.height);
+    if (shortSide > 0 && shortSide < MIN_DIM) {
+      scale = Math.min(4, MIN_DIM / shortSide);
+    }
+    const out = document.createElement('canvas');
+    out.width = Math.round(sourceCanvas.width * scale);
+    out.height = Math.round(sourceCanvas.height * scale);
+    const ctx = out.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(sourceCanvas, 0, 0, out.width, out.height);
+ 
+    const imgData = ctx.getImageData(0, 0, out.width, out.height);
+    const d = imgData.data;
+    const n = d.length / 4;
+    const gray = new Float32Array(n);
+    let sum = 0;
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+      const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      gray[j] = g;
+      sum += g;
+    }
+    const mean = sum / n;
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+      const v = gray[j] > mean ? 255 : 0;
+      d[i] = d[i + 1] = d[i + 2] = v;
+    }
+    ctx.putImageData(imgData, 0, 0);
+    return out;
+  }
+ 
+  async function runOCR(file, triggerBtn) {
+    if (!file) return;
+ 
+    triggerBtn.classList.add('busy');
+    statusLine.textContent = '📷 جارٍ قراءة الصورة...';
+    statusLine.className = 'status-line';
+    resultsEl.innerHTML = '';
+ 
+    try {
+      if (typeof Tesseract === 'undefined') {
+        throw new Error('مكتبة القراءة لم تُحمَّل — تأكد من الاتصال بالإنترنت');
+      }
+      if (!ocrWorker) {
+        statusLine.textContent = '📷 جارٍ تجهيز محرك القراءة (أول مرة فقط)...';
+        ocrWorker = await Tesseract.createWorker('eng');
+        // Chassis/VIN numbers are Latin letters + digits only.
+        await ocrWorker.setParameters({
+          tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
+          tessedit_pageseg_mode: '7' // treat crop as a single text line (typical for a tight VIN crop)
+        });
+      }
+ 
+      statusLine.textContent = '📷 جارٍ تحليل الصورة...';
+      const { data } = await ocrWorker.recognize(file);
+      const text = (data && data.text) ? data.text.trim() : '';
+ 
+      if (!text) {
+        statusLine.textContent = '⚠️ مقدرتش أقرا أي نص من الصورة — جرب تحديد مساحة رقم الهيكل بدقة أكتر';
+        statusLine.className = 'status-line';
+        renderEmpty();
+        return;
+      }
+ 
+      input.value = text;
+      statusLine.textContent = '✅ قريت: ' + text.replace(/\s+/g, ' ');
+      statusLine.className = 'status-line ok-text';
+      renderResults(text);
+    } catch (err) {
+      statusLine.textContent = '⚠️ خطأ في قراءة الصورة: ' + (err.message || err);
+      statusLine.className = 'status-line';
+    } finally {
+      triggerBtn.classList.remove('busy');
+    }
+  }
+ 
+  camInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    openCropper(file, camBtn);
+    camInput.value = '';
+  });
+ 
+  uploadInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    openCropper(file, uploadBtn);
+    uploadInput.value = '';
+  });
+ 
   renderEmpty();
 })();
 </script>
 </body>
 </html>
+ 
