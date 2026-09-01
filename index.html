@@ -6,12 +6,12 @@
 <title>لمّاح</title>
 <style>
   :root {
-    --bg: #0f1115;
-    --panel: #171a21;
-    --panel-2: #1e222b;
-    --border: #2a2f3a;
-    --text: #eef0f4;
-    --muted: #9aa2b1;
+    --bg: #071a12;
+    --panel: #0e2b1c;
+    --panel-2: #123423;
+    --border: #1f4a34;
+    --text: #eef4f0;
+    --muted: #8fae9c;
     --accent: #d4af37;
     --accent-dim: #8a742a;
     --good: #4caf7d;
@@ -705,63 +705,86 @@
     input.focus();
   });
 
-  // ---- Voice recognition (continuous multi-query mode) ----
+  // ---- Voice recognition ----
+  // Each mic press listens for a fixed 5-second window, then automatically
+  // stops and searches whatever was said. If it's an exact match, the phone
+  // vibrates (vibrateFound(), called from renderResults). If not, the user
+  // is asked to speak again and listening restarts automatically for
+  // another 5 seconds — no need to keep tapping the mic button.
+  const LISTEN_WINDOW_MS = 5000;
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
   let listening = false;
   let micPermissionGranted = false;
   let continuousMode = false;   // true while the user wants to keep speaking plate after plate
   let restartTimer = null;
+  let micTimeout = null;        // enforces the 5-second listening window
+  let stoppingForSearch = false; // true when stop() was triggered by the 5s timer (not a manual cancel)
+  let finalTranscriptBuffer = '';
 
   if (SpeechRecognition) {
     recognition = new SpeechRecognition();
     recognition.lang = 'ar-SA';
-    recognition.continuous = false;
+    // continuous = true so the engine keeps listening through short pauses
+    // for the whole 5-second window, instead of cutting off after the
+    // first brief silence.
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
       listening = true;
+      finalTranscriptBuffer = '';
       micBtn.classList.add('listening');
-      statusLine.textContent = '🎙️ بيسمعك دلوقتي... اتكلم';
+      statusLine.textContent = '🎙️ بيسمعك دلوقتي... اتكلم (٥ ثواني)';
       statusLine.className = 'status-line listening-text';
+      clearTimeout(micTimeout);
+      micTimeout = setTimeout(() => {
+        stoppingForSearch = true;
+        try { recognition.stop(); } catch (e) {}
+      }, LISTEN_WINDOW_MS);
     };
 
     recognition.onresult = (event) => {
-      let transcript = '';
-      for (let i = 0; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript;
-      }
-      input.value = transcript;
-      const lastResult = event.results[event.results.length - 1];
-
-      if (lastResult.isFinal) {
-        const found = renderResults(transcript);
-        if (found) {
-          // Exact match — stop the loop, keep the result on screen.
-          statusLine.textContent = '✅ سمعت: ' + transcript;
-          statusLine.className = 'status-line ok-text';
-          continuousMode = false;
+      let interimText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const res = event.results[i];
+        if (res.isFinal) {
+          finalTranscriptBuffer += res[0].transcript;
         } else {
-          // Not found — clear the box and keep listening so the person can
-          // just say the next plate right away without pressing the mic again.
-          statusLine.textContent = '🔁 مفيش نتيجة لـ «' + transcript + '» — قول رقم تاني...';
-          statusLine.className = 'status-line listening-text';
-          input.value = '';
-        }
-      } else {
-        // Quick live feedback while still speaking — try searching the
-        // interim transcript too; if it already matches exactly, no need
-        // to wait for the "final" event, which cuts perceived latency a lot.
-        const found = renderResults(transcript);
-        if (found) {
-          statusLine.textContent = '✅ سمعت: ' + transcript;
-          statusLine.className = 'status-line ok-text';
-          continuousMode = false;
-          try { recognition.stop(); } catch (e) {}
+          interimText += res[0].transcript;
         }
       }
+      // Live feedback while still speaking, shown as-is (raw words).
+      input.value = (finalTranscriptBuffer + ' ' + interimText).trim();
     };
+
+    // Runs once the 5-second window ends (recognition.stop() fires this
+    // after flushing any in-progress result): converts whatever was heard
+    // into a compact plate token (e.g. "دال ميم صاد" -> "دمص"), shows it
+    // in the search box and in the "سمعت" status line, then searches it.
+    function finalizeAndSearch() {
+      const transcript = finalTranscriptBuffer.trim();
+      if (!transcript) {
+        statusLine.textContent = '⚠️ مسمعتش حاجة — اتكلم تاني';
+        statusLine.className = 'status-line listening-text';
+        input.value = '';
+        return;
+      }
+      const token = transcriptToPlateToken(transcript) || transcript;
+      input.value = token;
+      const found = renderResults(transcript);
+      if (found) {
+        // Exact match — vibrateFound() already ran inside renderResults().
+        statusLine.textContent = '✅ سمعت: ' + token;
+        statusLine.className = 'status-line ok-text';
+        continuousMode = false;
+      } else {
+        statusLine.textContent = '🔁 سمعت: ' + token + ' — مفيش نتيجة، اتكلم تاني';
+        statusLine.className = 'status-line listening-text';
+        input.value = '';
+      }
+    }
 
     recognition.onerror = (event) => {
       if (event.error === 'no-speech') {
@@ -783,15 +806,31 @@
       statusLine.textContent = msg;
       statusLine.className = 'status-line';
       listening = false;
+      stoppingForSearch = false;
       micBtn.classList.remove('listening');
+      clearTimeout(micTimeout);
     };
 
     recognition.onend = () => {
       listening = false;
       micBtn.classList.remove('listening');
+      clearTimeout(micTimeout);
+
+      if (stoppingForSearch) {
+        stoppingForSearch = false;
+        finalizeAndSearch();
+        if (continuousMode) {
+          // Not found (or nothing heard) — automatically start the next
+          // 5-second listening window so the person can just talk again.
+          clearTimeout(restartTimer);
+          restartTimer = setTimeout(() => { startListening(); }, 400);
+        }
+        return;
+      }
+
       if (continuousMode) {
-        // Restart almost immediately so multi-plate voice search feels
-        // seamless instead of requiring a fresh tap on the mic each time.
+        // Ended for another reason (e.g. a transient error) while the user
+        // still wants to keep listening — restart the window.
         clearTimeout(restartTimer);
         restartTimer = setTimeout(() => { startListening(); }, 250);
         return;
@@ -827,8 +866,12 @@
     micBtn.addEventListener('click', () => {
       if (listening || continuousMode) {
         continuousMode = false;
+        stoppingForSearch = false;
         clearTimeout(restartTimer);
+        clearTimeout(micTimeout);
         try { recognition.stop(); } catch (e) {}
+        statusLine.textContent = '';
+        statusLine.className = 'status-line';
         return;
       }
       continuousMode = true;
