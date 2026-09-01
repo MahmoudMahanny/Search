@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>بحث اللوحات </title>
+<title>بحث اللوحات - طـه</title>
 <style>
   :root {
     --bg: #0f1115;
@@ -45,6 +45,24 @@
     color: var(--muted);
     font-size: 13px;
   }
+  .nav-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .nav-link {
+    flex: 1;
+    text-align: center;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 9px 4px;
+    font-size: 13px;
+    text-decoration: none;
+    transition: transform 0.15s ease;
+  }
+  .nav-link:active { transform: scale(0.96); }
   .search-box {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -353,13 +371,18 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>🔍 بحث اللوحات </h1>
+    <h1>🔍 بحث اللوحات — طـه</h1>
     <p id="dbCount">جارٍ تحميل قاعدة البيانات...</p>
   </header>
 
+  <div class="nav-row">
+    <a href="chassis.html" class="nav-link">🔧 بحث بالهيكل/الشاصي</a>
+    <a href="history.html" class="nav-link">📋 عرض السجل</a>
+  </div>
+
   <div class="secondary-actions">
     <button id="excelBtn" class="secondary-btn">📊 إضافة بيانات من إكسيل</button>
-    <button id="clearDataBtn" class="secondary-btn danger-btn">🗑️ مسح البيانات المضافة</button>
+    <button id="clearDataBtn" class="secondary-btn danger-btn">🗑️ مسح كل البيانات</button>
     <input id="excelInput" type="file" accept=".xlsx,.xls" style="display:none" />
   </div>
   <div id="extraCountBadge" class="extra-count-badge" style="display:none"></div>
@@ -414,6 +437,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="db.js"></script>
 <script>
 (async function () {
   const dbCountEl = document.getElementById('dbCount');
@@ -433,87 +457,54 @@
     }
   });
 
-  let rawData;
+  // ---- Load records: from IndexedDB if already seeded on this device,
+  // otherwise fetch+decompress the base file once and seed IndexedDB with it.
+  // Once "seeded" is set (even after a full clear, which keeps it true with
+  // zero rows), the base file is never re-fetched — a refresh after clearing
+  // everything will correctly show an empty database, not silently restore it.
+  let rawRecords;
   try {
-    const resp = await fetch('plates.txt.gz');
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const buf = await resp.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    // Check gzip magic number (0x1f 0x8b). Some CDNs (incl. GitHub Pages/Fastly)
-    // transparently decompress .gz files server-side via Content-Encoding, in
-    // which case buf already holds the plain text and re-decompressing would
-    // fail. Detect which case we're in instead of assuming.
-    const isGzipped = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
-    let text;
-    if (isGzipped) {
-      if (typeof DecompressionStream === 'undefined') {
-        throw new Error('المتصفح لا يدعم فك الضغط — استخدم كروم حديث');
-      }
-      const ds = new DecompressionStream('gzip');
-      const stream = new Blob([buf]).stream().pipeThrough(ds);
-      text = await new Response(stream).text();
+    const alreadySeeded = await getMeta('seeded');
+    if (alreadySeeded) {
+      rawRecords = await getAllRecords();
     } else {
-      text = new TextDecoder('utf-8').decode(bytes);
+      const resp = await fetch('plates.txt.gz');
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const buf = await resp.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      // Check gzip magic number (0x1f 0x8b). Some CDNs (incl. GitHub Pages/Fastly)
+      // transparently decompress .gz files server-side via Content-Encoding, in
+      // which case buf already holds the plain text and re-decompressing would
+      // fail. Detect which case we're in instead of assuming.
+      const isGzipped = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+      let text;
+      if (isGzipped) {
+        if (typeof DecompressionStream === 'undefined') {
+          throw new Error('المتصفح لا يدعم فك الضغط — استخدم كروم حديث');
+        }
+        const ds = new DecompressionStream('gzip');
+        const stream = new Blob([buf]).stream().pipeThrough(ds);
+        text = await new Response(stream).text();
+      } else {
+        text = new TextDecoder('utf-8').decode(bytes);
+      }
+      const lines = text.split('\n').filter(Boolean);
+      const seeded = lines.map(line => {
+        const parts = line.split('|');
+        const plate = parts[0] || '', type = parts[1] || '', bank = parts[2] || '', chassis = parts[3] || '';
+        const normPlate = normalizeText(plate);
+        return {
+          dedupeKey: normPlate + '|' + normalizeText(chassis) + '|' + normalizeText(bank),
+          plate, type, bank, chassis, normPlate, source: 'base'
+        };
+      });
+      await putRecords(seeded);
+      await setMeta('seeded', true);
+      rawRecords = seeded;
     }
-    rawData = text.split('\n').filter(Boolean).map(line => line.split('|'));
   } catch (err) {
     dbCountEl.textContent = '⚠️ تعذر تحميل قاعدة البيانات (' + err.message + ')';
     return;
-  }
-  // rawData: [ [plate, type, bank, chassis], ... ]
-
-  // ---- IndexedDB: locally-added records (per-device only, not shared) ----
-  const DB_NAME = 'plateSearchExtraDB';
-  const STORE_NAME = 'extra';
-
-  function openExtraDB() {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME, { keyPath: 'dedupeKey' });
-        }
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-  }
-
-  async function getAllExtra() {
-    try {
-      const db = await openExtraDB();
-      return await new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, 'readonly');
-        const store = tx.objectStore(STORE_NAME);
-        const req = store.getAll();
-        req.onsuccess = () => resolve(req.result || []);
-        req.onerror = () => reject(req.error);
-      });
-    } catch (e) {
-      return [];
-    }
-  }
-
-  async function putExtraRecords(records) {
-    const db = await openExtraDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      records.forEach(r => store.put(r));
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-
-  async function clearAllExtra() {
-    const db = await openExtraDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      tx.objectStore(STORE_NAME).clear();
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
   }
 
   const input = document.getElementById('plateInput');
@@ -522,38 +513,8 @@
   const statusLine = document.getElementById('statusLine');
   const resultsEl = document.getElementById('results');
 
-  // ---- Normalization helpers ----
-  const arabicIndicDigits = '٠١٢٣٤٥٦٧٨٩';
-  const easternIndicDigits = '۰۱۲۳۴۵۶۷۸۹';
-
-  function normalizeDigits(str) {
-    return str.replace(/[٠-٩]/g, d => String(arabicIndicDigits.indexOf(d)))
-               .replace(/[۰-۹]/g, d => String(easternIndicDigits.indexOf(d)));
-  }
-
-  function stripTashkeel(str) {
-    return str.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '');
-  }
-
-  function normalizeArabicLetters(str) {
-    return str
-      .replace(/[إأآا]/g, 'ا')
-      .replace(/ى/g, 'ي')
-      .replace(/ة/g, 'ه')
-      .replace(/ؤ/g, 'و')
-      .replace(/ئ/g, 'ي')
-      .replace(/ٱ/g, 'ا');
-  }
-
-  function normalizeText(str) {
-    if (!str) return '';
-    str = normalizeDigits(str);
-    str = stripTashkeel(str);
-    str = normalizeArabicLetters(str);
-    str = str.replace(/\s+/g, '');
-    str = str.toLowerCase();
-    return str;
-  }
+  // Normalization helpers (normalizeText, normalizeDigits, normalizeArabicLetters,
+  // escapeHtml, vibrateFound) are provided globally by db.js, loaded above.
 
   // Map of Arabic letter *names* spoken aloud -> the letter itself,
   // so voice recognition saying "الف نون قاف" still matches "انق"
@@ -636,14 +597,12 @@
     return normalizeArabicLetters(out).toLowerCase();
   }
 
-  // Pre-normalize the base DB once for fast search
-  let normDB = rawData.map(row => ({
-    plate: row[0] || '',
-    type: row[1] || '',
-    bank: row[2] || '',
-    chassis: row[3] || '',
-    normPlate: normalizeText(row[0] || ''),
-    source: 'base'
+  // rawRecords already comes fully normalized (base + any extra records,
+  // both stored together in IndexedDB) — no extra merge step needed.
+  let normDB = rawRecords.map(r => ({
+    plate: r.plate || '', type: r.type || '', bank: r.bank || '',
+    chassis: r.chassis || '', normPlate: r.normPlate || normalizeText(r.plate || ''),
+    source: r.source || 'base'
   }));
 
   const extraCountBadge = document.getElementById('extraCountBadge');
@@ -659,18 +618,6 @@
       extraCountBadge.style.display = 'none';
     }
   }
-
-  // Load any locally-added records from a previous Excel upload on this device
-  try {
-    const extraRecords = await getAllExtra();
-    for (const r of extraRecords) {
-      normDB.push({
-        plate: r.plate || '', type: r.type || '', bank: r.bank || '',
-        chassis: r.chassis || '', normPlate: r.normPlate || normalizeText(r.plate || ''),
-        source: 'extra'
-      });
-    }
-  } catch (e) { /* ignore — extra data is optional */ }
 
   updateCountDisplay();
 
@@ -723,7 +670,16 @@
     }
     resultsEl.innerHTML = html;
 
-    if (isExact) vibrateFound();
+    if (isExact) {
+      vibrateFound();
+      // Log each exact match to the search history (best-effort; never blocks the UI)
+      for (const r of exact) {
+        addHistoryEntry({
+          plate: r.plate, type: r.type, bank: r.bank, chassis: r.chassis,
+          matchedBy: 'plate', searchedAt: new Date().toISOString()
+        }).catch(() => {});
+      }
+    }
     return isExact;
   }
 
@@ -731,17 +687,7 @@
     return '<div class="field-row"><span class="field-label">' + label + '</span><span class="field-value">' + escapeHtml(String(value)) + '</span></div>';
   }
 
-  // Long vibration (10s) to signal a confirmed exact match — useful when the
-  // person's attention is on the car/plate, not the screen.
-  function vibrateFound() {
-    if (navigator.vibrate) {
-      try { navigator.vibrate(10000); } catch (e) { /* ignore */ }
-    }
-  }
-
-  function escapeHtml(str) {
-    return str.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  }
+  // vibrateFound() and escapeHtml() are provided globally by db.js.
 
   let debounceTimer = null;
   input.addEventListener('input', () => {
@@ -978,19 +924,62 @@
     const { sel, triggerBtn } = cropState;
     cropOverlay.classList.remove('active');
 
-    const out = document.createElement('canvas');
+    const cropped = document.createElement('canvas');
     if (sel && sel.w > 15 && sel.h > 10) {
-      out.width = sel.w;
-      out.height = sel.h;
-      out.getContext('2d').drawImage(cropCanvas, sel.x, sel.y, sel.w, sel.h, 0, 0, sel.w, sel.h);
+      cropped.width = sel.w;
+      cropped.height = sel.h;
+      cropped.getContext('2d').drawImage(cropCanvas, sel.x, sel.y, sel.w, sel.h, 0, 0, sel.w, sel.h);
     } else {
-      out.width = cropCanvas.width;
-      out.height = cropCanvas.height;
-      out.getContext('2d').drawImage(cropCanvas, 0, 0);
+      cropped.width = cropCanvas.width;
+      cropped.height = cropCanvas.height;
+      cropped.getContext('2d').drawImage(cropCanvas, 0, 0);
     }
+    const out = preprocessForOCR(cropped);
     out.toBlob((blob) => { runOCR(blob, triggerBtn); }, 'image/png');
     cropState = null;
   });
+
+  // Upscale small crops + convert to high-contrast black/white. Plate photos
+  // are usually small, low-contrast crops once zoomed in on just the plate,
+  // and OCR engines are dramatically more accurate on large, binarized text
+  // than on small color/gray photos straight from a phone camera.
+  function preprocessForOCR(sourceCanvas) {
+    const MIN_DIM = 500; // upscale so the shorter side is at least this many px
+    let scale = 1;
+    const shortSide = Math.min(sourceCanvas.width, sourceCanvas.height);
+    if (shortSide > 0 && shortSide < MIN_DIM) {
+      scale = Math.min(4, MIN_DIM / shortSide);
+    }
+
+    const out = document.createElement('canvas');
+    out.width = Math.round(sourceCanvas.width * scale);
+    out.height = Math.round(sourceCanvas.height * scale);
+    const ctx = out.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(sourceCanvas, 0, 0, out.width, out.height);
+
+    const imgData = ctx.getImageData(0, 0, out.width, out.height);
+    const d = imgData.data;
+    const n = d.length / 4;
+    const gray = new Float32Array(n);
+    let sum = 0;
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+      const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      gray[j] = g;
+      sum += g;
+    }
+    const mean = sum / n;
+    // Simple global threshold around the mean brightness — plates are
+    // high-contrast (dark text on white background) so this works well
+    // once the crop is tight and doesn't include much background.
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+      const v = gray[j] > mean ? 255 : 0;
+      d[i] = d[i + 1] = d[i + 2] = v;
+    }
+    ctx.putImageData(imgData, 0, 0);
+    return out;
+  }
 
   async function runOCR(file, triggerBtn) {
     if (!file) return;
@@ -1013,7 +1002,10 @@
         // of the noise OCR otherwise picks up from backgrounds/other text.
         await ocrWorker.setParameters({
           tessedit_char_whitelist:
-            '0123456789٠١٢٣٤٥٦٧٨٩ابتثجحخدذرزسشصضطظعغفقكلمنهويىءأإآؤئة '
+            '0123456789٠١٢٣٤٥٦٧٨٩ابتثجحخدذرزسشصضطظعغفقكلمنهويىءأإآؤئة ',
+          // PSM 6 = "assume a single uniform block of text" — a good fit for
+          // a tight crop of just the plate (may still have 2 stacked rows).
+          tessedit_pageseg_mode: '6'
         });
       }
 
@@ -1040,6 +1032,7 @@
     }
   }
 
+
   camInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     openCropper(file, camBtn);
@@ -1063,6 +1056,12 @@
 
   excelBtn.addEventListener('click', () => excelInput.click());
 
+  // Recognizes any of: لوحة، اللوحة، لوحه، اللوحه، اللوجه (a common typo)
+  function looksLikePlateHeader(cellText) {
+    const norm = normalizeArabicLetters(stripTashkeel(cellText || ''));
+    return norm.indexOf('لوحه') !== -1 || cellText.indexOf('لوجه') !== -1;
+  }
+
   function parseWorkbookToRecords(workbook) {
     const records = [];
     for (const sheetName of workbook.SheetNames) {
@@ -1074,14 +1073,14 @@
       const cols = {};
       for (let i = 0; i < Math.min(rows.length, 6); i++) {
         const row = (rows[i] || []).map(c => String(c || '').trim());
-        const idx = row.findIndex(c => c.indexOf('لوحة') !== -1);
+        const idx = row.findIndex(c => looksLikePlateHeader(c));
         if (idx !== -1) {
           headerIdx = i;
           row.forEach((c, ci) => {
-            if (c.indexOf('لوحة') !== -1) cols.plate = ci;
+            if (looksLikePlateHeader(c)) cols.plate = ci;
             else if (c.indexOf('نوع') !== -1) cols.type = ci;
             else if (c.indexOf('بنك') !== -1) cols.bank = ci;
-            else if (c.indexOf('هيكل') !== -1 || c.indexOf('شاصي') !== -1) cols.chassis = ci;
+            else if (c.indexOf('هيكل') !== -1 || c.indexOf('شاصي') !== -1 || c.indexOf('شاسي') !== -1) cols.chassis = ci;
           });
           break;
         }
@@ -1127,14 +1126,14 @@
         return;
       }
 
-      const existingKeys = new Set(normDB.map(r => r.normPlate + '|' + normalizeText(r.chassis || '')));
+      const existingKeys = new Set(normDB.map(r => r.normPlate + '|' + normalizeText(r.chassis || '') + '|' + normalizeText(r.bank || '')));
       const toAdd = [];
       for (const rec of parsed) {
         const normPlate = normalizeText(rec.plate);
-        const dedupeKey = normPlate + '|' + normalizeText(rec.chassis || '');
+        const dedupeKey = normPlate + '|' + normalizeText(rec.chassis || '') + '|' + normalizeText(rec.bank || '');
         if (existingKeys.has(dedupeKey)) continue;
         existingKeys.add(dedupeKey);
-        toAdd.push({ dedupeKey, plate: rec.plate, type: rec.type, bank: rec.bank, chassis: rec.chassis, normPlate });
+        toAdd.push({ dedupeKey, plate: rec.plate, type: rec.type, bank: rec.bank, chassis: rec.chassis, normPlate, source: 'extra' });
       }
 
       if (toAdd.length === 0) {
@@ -1143,7 +1142,10 @@
         return;
       }
 
-      await putExtraRecords(toAdd);
+      await putRecords(toAdd);
+      // Make sure "seeded" is set so a later refresh doesn't try to re-fetch
+      // the base file and overwrite/duplicate what's already in IndexedDB.
+      await setMeta('seeded', true);
       for (const r of toAdd) {
         normDB.push({ plate: r.plate, type: r.type, bank: r.bank, chassis: r.chassis, normPlate: r.normPlate, source: 'extra' });
       }
@@ -1158,15 +1160,18 @@
     }
   });
 
-  // ---- Clear locally-added data (with confirmation) ----
+  // ---- Clear ALL data (base + extra + search history) — a full local wipe.
+  // After this, a plain page refresh will show an EMPTY database: the base
+  // file is intentionally not re-fetched automatically (see clearEverything
+  // in db.js), matching "امسح كل حاجة حتى لو عملت ريفريش".
   clearDataBtn.addEventListener('click', () => {
-    const extraCount = normDB.filter(r => r.source === 'extra').length;
-    if (extraCount === 0) {
-      statusLine.textContent = 'ℹ️ مفيش بيانات إضافية متخزنة على هذا الجهاز أصلًا';
+    const totalCount = normDB.length;
+    if (totalCount === 0) {
+      statusLine.textContent = 'ℹ️ مفيش بيانات على الجهاز ده أصلًا';
       statusLine.className = 'status-line';
       return;
     }
-    confirmMessage.textContent = 'هل تريد مسح كل البيانات المضافة (' + extraCount.toLocaleString('ar-EG') + ' سجل) من هذا الجهاز؟ القاعدة الأساسية لن تتأثر.';
+    confirmMessage.textContent = 'هل تريد مسح كل البيانات (' + totalCount.toLocaleString('ar-EG') + ' سجل، شامل القاعدة الأساسية) وسجل البحث من هذا الجهاز؟ بعد المسح، تحديث الصفحة لن يُعيد تحميل البيانات تلقائيًا.';
     confirmOverlay.classList.add('active');
   });
 
@@ -1177,10 +1182,10 @@
   confirmOk.addEventListener('click', async () => {
     confirmOverlay.classList.remove('active');
     try {
-      await clearAllExtra();
-      normDB = normDB.filter(r => r.source !== 'extra');
+      await clearEverything();
+      normDB = [];
       updateCountDisplay();
-      statusLine.textContent = '✅ اتمسحت كل البيانات المضافة';
+      statusLine.textContent = '✅ اتمسحت كل البيانات وسجل البحث من هذا الجهاز';
       statusLine.className = 'status-line ok-text';
       renderEmpty();
     } catch (err) {
