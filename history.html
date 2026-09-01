@@ -2,8 +2,17 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="لمّاح">
+<meta name="theme-color" content="#071a12">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230e2b1c'/%3E%3Cpath d='M12 34c7-13 33-13 40 0-7 13-33 13-40 0Z' fill='%23d4af37'/%3E%3Ccircle cx='32' cy='34' r='7' fill='%230e2b1c'/%3E%3C/svg%3E">
 <title>لمّاح — سجل البحث</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #071a12;
@@ -17,52 +26,87 @@
     --good: #4caf7d;
     --danger: #e05a5a;
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
     margin: 0; padding: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+    font-family: 'Tajawal', 'Segoe UI', Tahoma, Arial, sans-serif;
     min-height: 100vh;
+    min-height: 100dvh;
+    overscroll-behavior-y: none;
   }
   .wrap {
     max-width: 700px;
     margin: 0 auto;
-    padding: 20px 16px 60px;
+    padding: calc(18px + env(safe-area-inset-top)) 16px calc(88px + env(safe-area-inset-bottom));
   }
   header {
     text-align: center;
-    margin-bottom: 18px;
+    margin-bottom: 16px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .brand-logo {
+    width: 46px;
+    height: 46px;
+    flex-shrink: 0;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35));
   }
   header h1 {
-    font-size: 22px;
-    margin: 0 0 4px;
+    font-family: 'Almarai', 'Tajawal', 'Segoe UI', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    margin: 0;
     letter-spacing: 0.5px;
     color: var(--accent);
+    line-height: 1;
   }
   header p {
-    margin: 0;
+    margin: 4px 0 0;
     color: var(--muted);
-    font-size: 13px;
+    font-size: 12.5px;
+    min-height: 16px;
   }
-  .nav-row {
+  .bottom-nav {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 50;
     display: flex;
-    gap: 8px;
-    margin-bottom: 14px;
+    gap: 6px;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    background: rgba(14, 43, 28, 0.92);
+    backdrop-filter: blur(14px) saturate(1.4);
+    -webkit-backdrop-filter: blur(14px) saturate(1.4);
+    border-top: 1px solid var(--border);
+    max-width: 700px;
+    margin: 0 auto;
   }
   .nav-link {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
     text-align: center;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 10px;
-    padding: 9px 4px;
-    font-size: 13px;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    border-radius: 12px;
+    padding: 7px 4px 5px;
+    font-size: 11px;
     text-decoration: none;
-    transition: transform 0.15s ease;
+    transition: transform 0.15s ease, color 0.15s ease, background 0.15s ease;
   }
-  .nav-link:active { transform: scale(0.96); }
+  .nav-link .nav-icon { font-size: 20px; line-height: 1; }
+  .nav-link:active { transform: scale(0.92); }
+  .nav-link.active { color: var(--accent); background: rgba(212,175,55,0.12); }
 
   .toolbar {
     display: flex;
@@ -197,14 +241,24 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>📋 سجل عمليات البحث</h1>
+    <div class="brand">
+      <svg class="brand-logo" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <linearGradient id="lammahGrad" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#f3d47c"/>
+            <stop offset="1" stop-color="#b8892a"/>
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="60" height="60" rx="18" fill="url(#lammahGrad)"/>
+        <path d="M12 34c7-13 33-13 40 0-7 13-33 13-40 0Z" fill="#0e2b1c"/>
+        <circle cx="32" cy="34" r="7.5" fill="url(#lammahGrad)"/>
+        <circle cx="32" cy="34" r="3" fill="#0e2b1c"/>
+        <path d="M47 12l2.2 5 5 2.2-5 2.2-2.2 5-2.2-5-5-2.2 5-2.2 2.2-5Z" fill="#fff7e0"/>
+      </svg>
+      <h1>📋 سجل البحث</h1>
+    </div>
     <p id="historyCount">جارٍ تحميل السجل...</p>
   </header>
-
-  <div class="nav-row">
-    <a href="index.html" class="nav-link">🔍 بحث باللوحة</a>
-    <a href="chassis.html" class="nav-link">🔧 بحث بالهيكل</a>
-  </div>
 
   <div class="toolbar">
     <button id="clearHistoryBtn" class="danger-btn">🗑️ مسح السجل فقط</button>
@@ -224,6 +278,12 @@
     </div>
   </div>
 </div>
+
+<nav class="bottom-nav">
+  <a href="index.html" class="nav-link"><span class="nav-icon">🔍</span>بحث باللوحة</a>
+  <a href="chassis.html" class="nav-link"><span class="nav-icon">🔧</span>بحث بالهيكل</a>
+  <a href="history.html" class="nav-link active"><span class="nav-icon">📋</span>السجل</a>
+</nav>
 
 <script src="db.js"></script>
 <script>
