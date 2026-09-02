@@ -1,6 +1,6 @@
 {
-  "versionCode": 13,
-  "versionName": "0.1.12",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.12/lammah.apk",
-  "notes": "إصلاح المايك في التطبيق — انتظار Capacitor عند الضغط بدل رسالة تحديث خاطئة"
+  "versionCode": 14,
+  "versionName": "0.1.13",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.13/lammah.apk",
+  "notes": "إصلاح تعليق «جارٍ تجهيز المايك» — فتح فوري مع مهلة واضحة"
 }

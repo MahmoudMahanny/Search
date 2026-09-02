@@ -10,6 +10,7 @@ const root = join(import.meta.dirname, '..');
 const www = join(root, 'www');
 const vendorDir = join(www, 'vendor');
 const xlsxSrc = join(root, 'node_modules/xlsx/dist/xlsx.full.min.js');
+const capacitorJs = join(root, 'node_modules/@capacitor/core/dist/capacitor.js');
 
 const files = [
   'index.html',
@@ -45,6 +46,13 @@ if (existsSync(xlsxSrc)) {
   cpSync(xlsxSrc, join(vendorRoot, 'xlsx.full.min.js'));
 } else {
   console.warn('Warning: xlsx bundle missing — run npm install first');
+}
+
+if (existsSync(capacitorJs)) {
+  cpSync(capacitorJs, join(www, 'capacitor.js'));
+  cpSync(capacitorJs, join(root, 'capacitor.js'));
+} else {
+  console.warn('Warning: capacitor.js missing');
 }
 
 console.log('Synced web assets → www/');

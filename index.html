@@ -732,6 +732,7 @@
     location.protocol === 'capacitor:' ||
     /android_asset/i.test(location.href);
 </script>
+<script src="capacitor.js"></script>
 <script src="db.js"></script>
 <script src="update.js"></script>
 <script>
@@ -1314,6 +1315,13 @@
     });
   }
 
+  function withRaceTimeout(promise, ms, label) {
+    return Promise.race([
+      promise,
+      delay(ms).then(() => { throw new Error((label || 'عملية') + ' تجاوزت الوقت'); })
+    ]);
+  }
+
   let isNativeAndroid = false;
   let recognition = null;
   let nativeSpeech = null;
@@ -1508,22 +1516,13 @@
 
     async function startWebListening() {
       if (!micOpen || pauseListeningForAlarm) return;
-      if (!micPermissionGranted && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          stream.getTracks().forEach(t => t.stop());
-          micPermissionGranted = true;
-        } catch (permErr) {
-          setListeningStatus(
-            '⚠️ مرفوض إذن المايك (' + (permErr.name || permErr.message) + ') — فعّل المايك من إعدادات التطبيق/المتصفح',
-            ''
-          );
-          micOpen = false;
-          setMicUi(false);
-          return;
-        }
+      // Don't preflight getUserMedia — it hangs on some Android WebViews.
+      // SpeechRecognition.start() requests mic itself; onerror handles denial.
+      try {
+        recognition.start();
+      } catch (e) {
+        // already started
       }
-      try { recognition.start(); } catch (e) {}
     }
 
     voiceStopEngine = () => {
@@ -1676,52 +1675,76 @@
   }
 
   enableMicSession = async function enableMicSessionLazy() {
-    setListeningStatus('🎙️ جارٍ تجهيز المايك...', 'listening-text');
+    setListeningStatus('🎙️ جارٍ فتح المايك...', 'listening-text');
+    setMicUi(true);
 
-    // Prefer native Google Speech inside the APK — wait for Capacitor bridge.
-    if (isCapacitorAndroidHost()) {
-      await waitForCapacitor(8000);
-      if (window.Capacitor?.registerPlugin) {
-        try {
-          const ok = await setupNativeSpeechEngine();
-          if (ok) {
-            let perm = await nativeSpeech.checkPermissions();
-            if (perm.speechRecognition !== 'granted') {
-              perm = await nativeSpeech.requestPermissions();
-            }
-            if (perm.speechRecognition !== 'granted') {
-              setListeningStatus(
-                '⚠️ محتاج إذن المايك — من إعدادات الجهاز: التطبيقات → لمّاح → الأذونات → الميكروفون',
-                ''
-              );
-              micOpen = false;
-              setMicUi(false);
-              return;
-            }
-            await setupNativeSpeechEngine._ensureListeners();
-            await enableMicSessionImpl();
-            return;
+    const startWeb = async () => {
+      if (!setupWebSpeechEngine()) {
+        setListeningStatus('⚠️ المايك مش متاح على الجهاز ده — استخدم الكتابة', '');
+        micOpen = false;
+        setMicUi(false);
+        return false;
+      }
+      micOpen = true;
+      pauseListeningForAlarm = false;
+      softRestarting = false;
+      resetVoiceBuffer();
+      setListeningStatus(MIC_OPEN_HINT, 'listening-text');
+      // Fire-and-forget so a hung start never freezes the button forever.
+      Promise.resolve(voiceStartEngine()).catch(() => {});
+      return true;
+    };
+
+    const startNative = async () => {
+      const ok = await setupNativeSpeechEngine();
+      if (!ok) return false;
+      let perm = await withRaceTimeout(nativeSpeech.checkPermissions(), 2500, 'فحص الإذن');
+      if (perm.speechRecognition !== 'granted') {
+        perm = await withRaceTimeout(nativeSpeech.requestPermissions(), 8000, 'طلب الإذن');
+      }
+      if (perm.speechRecognition !== 'granted') {
+        setListeningStatus(
+          '⚠️ محتاج إذن المايك — التطبيقات → لمّاح → الأذونات → الميكروفون',
+          ''
+        );
+        micOpen = false;
+        setMicUi(false);
+        return true; // handled
+      }
+      await withRaceTimeout(setupNativeSpeechEngine._ensureListeners(), 3000, 'تهيئة المايك');
+      micOpen = true;
+      pauseListeningForAlarm = false;
+      softRestarting = false;
+      resetVoiceBuffer();
+      setListeningStatus(MIC_OPEN_HINT, 'listening-text');
+      Promise.resolve(voiceStartEngine()).catch(() => {});
+      return true;
+    };
+
+    try {
+      if (isCapacitorAndroidHost()) {
+        setListeningStatus('🎙️ جارٍ ربط مايك التطبيق...', 'listening-text');
+        await waitForCapacitor(2000);
+        if (window.Capacitor?.registerPlugin) {
+          try {
+            const handled = await withRaceTimeout(startNative(), 12000, 'المايك الأصلي');
+            if (handled) return;
+          } catch (err) {
+            setListeningStatus('🎙️ بجرب وضع بديل للمايك...', 'listening-text');
           }
-        } catch (err) {
-          // Fall through to Web Speech instead of a dead-end "update APK" message.
-          setListeningStatus('⚠️ المايك الأصلي فشل — بجرب وضع المتصفح...', 'listening-text');
         }
       }
+      await startWeb();
+    } catch (err) {
+      setListeningStatus('⚠️ تعذر فتح المايك: ' + (err && err.message ? err.message : err), '');
+      micOpen = false;
+      setMicUi(false);
     }
-
-    if (setupWebSpeechEngine()) {
-      await enableMicSessionImpl();
-      return;
-    }
-
-    setListeningStatus('⚠️ البحث الصوتي مش مدعوم على الجهاز ده — استخدم الكتابة', '');
-    micOpen = false;
-    setMicUi(false);
   };
 
-  // Warm up Capacitor in the background (don't block the UI).
+  // Warm Capacitor in background without blocking UI.
   if (isCapacitorAndroidHost()) {
-    waitForCapacitor(10000).then((cap) => {
+    waitForCapacitor(8000).then((cap) => {
       if (cap?.registerPlugin) isNativeAndroid = true;
     });
   }
