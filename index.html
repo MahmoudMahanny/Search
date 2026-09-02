@@ -1189,7 +1189,7 @@
   });
 
   function announceExactMatch(records) {
-    vibrateFound(5000);
+    vibrateFound(6000);
     showMatchPopup(records);
   }
 
@@ -1343,7 +1343,7 @@
   let geminiInputBuffer = '';
   const micLabel = document.getElementById('micLabel');
   const MIC_OPEN_HINT = '🎙️ المايك مفتوح — قول أي لوحة في أي وقت';
-  const MIC_GEMINI_HINT = '✨ Gemini متصل — قول اللوحة للبحث في القاعدة';
+  const MIC_GEMINI_HINT = '🎙️ المايك مفتوح — قول أي لوحة في أي وقت';
 
   function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -1512,7 +1512,7 @@
     geminiSession = window.LammahGeminiVoice.createSession({
       onStatus: (state) => {
         if (!micOpen || pauseListeningForAlarm) return;
-        if (state === 'connecting') setListeningStatus('✨ جارٍ الاتصال بـ Gemini...', 'listening-text');
+        if (state === 'connecting') setListeningStatus('🎙️ جارٍ تجهيز المايك...', 'listening-text');
         else if (state === 'connected' || state === 'listening') setListeningStatus(voiceOpenHint(), 'listening-text');
       },
       onTranscript: (text, isFinalish) => {
@@ -1542,7 +1542,7 @@
       },
       onError: (err) => {
         if (!micOpen) return;
-        setListeningStatus('⚠️ Gemini: ' + (err && err.message ? err.message : err), '');
+        setListeningStatus('⚠️ تعذر فتح المايك: ' + (err && err.message ? err.message : err), '');
       }
     });
 
@@ -1558,7 +1558,7 @@
       } catch (err) {
         if (!micOpen) return;
         const msg = String(err && err.message ? err.message : err);
-        setListeningStatus('⚠️ تعذر تشغيل Gemini: ' + msg, '');
+        setListeningStatus('⚠️ تعذر فتح المايك: ' + msg, '');
         // Fall back to native/web if Gemini fails to start
         voiceEngineMode = '';
         geminiSession = null;
@@ -1768,11 +1768,11 @@
         softRestarting = false;
         resetVoiceBuffer();
         geminiInputBuffer = '';
-        setListeningStatus('✨ جارٍ الاتصال بـ Gemini...', 'listening-text');
+        setListeningStatus('🎙️ جارٍ تجهيز المايك...', 'listening-text');
         await voiceStartEngine();
         return true;
       } catch (err) {
-        console.warn('Gemini voice failed, falling back', err);
+        console.warn('primary voice failed, falling back', err);
         try { if (geminiSession) geminiSession.stop(); } catch (e) {}
         geminiSession = null;
         voiceEngineMode = '';

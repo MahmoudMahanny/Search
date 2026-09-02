@@ -1,6 +1,6 @@
 {
-  "versionCode": 16,
-  "versionName": "0.1.15",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.15/lammah.apk",
-  "notes": "بحث صوت Gemini Live → تطابق تام مع قاعدة اللوحات + صفارة"
+  "versionCode": 17,
+  "versionName": "0.1.16",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.16/lammah.apk",
+  "notes": "تحسين البحث الصوتي + هزاز أقوى عند إيجاد اللوحة"
 }

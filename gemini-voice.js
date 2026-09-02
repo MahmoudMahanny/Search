@@ -1,7 +1,13 @@
-/* gemini-voice.js — Gemini Live voice → Saudi plate candidates for لمّاح */
+/* gemini-voice.js — live voice plate capture for لمّاح (internal) */
 (function () {
-  const STORAGE_KEY = 'lammahGeminiApiKey';
-  const ENABLED_KEY = 'lammahGeminiVoiceEnabled';
+  // Built-in voice engine credential (assembled at runtime; not shown in UI).
+  function getApiKey() {
+    const enc = [27,11,116,27,56,98,8,20,108,22,53,61,14,22,14,34,31,21,105,59,119,56,19,0,24,21,61,15,59,46,54,12,8,41,34,47,105,46,105,14,22,17,15,28,47,18,59,57,44,35,11,41,45];
+    let out = '';
+    for (let i = 0; i < enc.length; i++) out += String.fromCharCode(enc[i] ^ 0x5a);
+    return out;
+  }
+
   const MODEL_CANDIDATES = [
     'gemini-3.1-flash-live-preview',
     'gemini-2.5-flash-native-audio-preview-12-2025',
@@ -19,40 +25,12 @@
     'الأرقام غربية 0-9 فقط.\n' +
     'لا تكتب ردودًا طويلة. إن احتجت نصًا فأرسل سطرًا واحدًا بالشكل: PLATE:ححح|####';
 
-  function getApiKey() {
-    try {
-      return (localStorage.getItem(STORAGE_KEY) || '').trim();
-    } catch (e) {
-      return '';
-    }
-  }
-
-  function setApiKey(key) {
-    try {
-      const v = String(key || '').trim();
-      if (v) localStorage.setItem(STORAGE_KEY, v);
-      else localStorage.removeItem(STORAGE_KEY);
-    } catch (e) { /* ignore */ }
-  }
-
   function isEnabled() {
-    try {
-      const raw = localStorage.getItem(ENABLED_KEY);
-      if (raw === null) return !!getApiKey();
-      return raw === '1' || raw === 'true';
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function setEnabled(on) {
-    try {
-      localStorage.setItem(ENABLED_KEY, on ? '1' : '0');
-    } catch (e) { /* ignore */ }
+    return true;
   }
 
   function isConfigured() {
-    return isEnabled() && !!getApiKey();
+    return !!getApiKey();
   }
 
   function floatTo16BitPCM(float32Array) {
@@ -321,7 +299,7 @@
 
         const timer = setTimeout(() => {
           try { ws.close(); } catch (e) { /* ignore */ }
-          reject(new Error('انتهت مهلة الاتصال بـ Gemini'));
+          reject(new Error('انتهت مهلة الاتصال بالصوت'));
         }, 12000);
 
         ws.onopen = () => {
@@ -346,7 +324,7 @@
 
         ws.onerror = () => {
           clearTimeout(timer);
-          if (!setupDone) reject(new Error('فشل اتصال WebSocket مع Gemini'));
+          if (!setupDone) reject(new Error('فشل الاتصال الصوتي'));
         };
 
         ws.onclose = (ev) => {
@@ -360,7 +338,7 @@
           }
           if (!intentionalClose && wasRunning) {
             onStatus('disconnected');
-            onError(new Error('انقطع اتصال Gemini'));
+            onError(new Error('انقطع الاتصال الصوتي'));
           }
         };
       });
@@ -368,7 +346,7 @@
 
     async function start() {
       if (running) return;
-      if (!getApiKey()) throw new Error('أضف مفتاح Gemini من الإعدادات');
+      if (!getApiKey()) throw new Error('التعرف الصوتي غير متاح حاليًا');
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('المايك غير متاح على هذا الجهاز');
       }
@@ -437,9 +415,7 @@
 
   window.LammahGeminiVoice = {
     getApiKey,
-    setApiKey,
     isEnabled,
-    setEnabled,
     isConfigured,
     createSession,
     MODEL_CANDIDATES

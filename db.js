@@ -183,20 +183,29 @@ function stopAlarm() {
   }
 }
 
-// 5-second vibrating siren when an exact plate/chassis match is found.
+// Strong vibrating alert when an exact plate/chassis match is found.
 function vibrateFound(durationMs) {
   const ms = typeof durationMs === 'number' ? durationMs : 5000;
   stopAlarm();
 
-  if (navigator.vibrate) {
+  const runVibrate = () => {
+    if (!navigator.vibrate) return;
     try {
+      // Long strong pulses so the phone is unmistakable in-hand / pocket.
       const pulse = [];
-      for (let t = 0; t < ms; t += 400) {
-        pulse.push(280, 120);
+      for (let t = 0; t < ms; t += 500) {
+        pulse.push(400, 100);
       }
       navigator.vibrate(pulse);
     } catch (e) { /* ignore */ }
-  }
+  };
+
+  runVibrate();
+  // Re-kick vibration a couple times — some WebViews drop the first pattern.
+  try {
+    setTimeout(runVibrate, 50);
+    setTimeout(runVibrate, 600);
+  } catch (e) { /* ignore */ }
 
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -204,7 +213,7 @@ function vibrateFound(durationMs) {
     const ctx = new AudioCtx();
     _alarmCtx = ctx;
     const gain = ctx.createGain();
-    gain.gain.value = 0.22;
+    gain.gain.value = 0.28;
     gain.connect(ctx.destination);
 
     const osc = ctx.createOscillator();
@@ -221,8 +230,8 @@ function vibrateFound(durationMs) {
       osc.frequency.setValueAtTime(1175, t + 0.18);
       t += 0.36;
     }
-    gain.gain.setValueAtTime(0.22, start);
-    gain.gain.setValueAtTime(0.22, end - 0.05);
+    gain.gain.setValueAtTime(0.28, start);
+    gain.gain.setValueAtTime(0.28, end - 0.05);
     gain.gain.linearRampToValueAtTime(0.0001, end);
 
     _alarmStopTimer = setTimeout(() => {
@@ -406,5 +415,5 @@ async function ensureTesseractLoaded() {
   if (typeof Tesseract === 'undefined') throw new Error('مكتبة القراءة البصرية لم تُحمَّل — محتاج إنترنت');
 }
 
-const APP_VERSION = '0.1.15';
-const APP_VERSION_CODE = 16;
+const APP_VERSION = '0.1.16';
+const APP_VERSION_CODE = 17;
