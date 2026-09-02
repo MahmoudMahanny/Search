@@ -327,5 +327,5 @@ async function ensureBaseRecordsSeeded(onStatus) {
   return seeded;
 }
 
-const APP_VERSION = '0.1.7';
-const APP_VERSION_CODE = 8;
+const APP_VERSION = '0.1.8';
+const APP_VERSION_CODE = 9;

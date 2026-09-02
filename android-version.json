@@ -1,6 +1,6 @@
 {
-  "versionCode": 8,
-  "versionName": "0.1.7",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.7/lammah.apk",
-  "notes": "إصلاح تحميل قاعدة البيانات + صفحة إعدادات (نسخة / ليلي-نهاري)"
+  "versionCode": 9,
+  "versionName": "0.1.8",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.8/lammah.apk",
+  "notes": "إشعار تحديث عند كل فتح + زر البحث عن تحديث في الإعدادات"
 }

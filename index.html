@@ -722,6 +722,7 @@
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
 <script src="db.js"></script>
+<script src="update.js"></script>
 <script>
 (async function () {
   const dbCountEl = document.getElementById('dbCount');
@@ -2142,92 +2143,17 @@
     }
   });
 
-  // ---- Android in-app update check (GitHub Releases) ----
-  const ANDROID_VERSION_URL =
-    'https://raw.githubusercontent.com/MahmoudMahanny/Search/main/android-version.json';
-  const UPDATE_DISMISS_KEY = 'lammahDismissedUpdateCode';
-  const UPDATE_CHECK_DELAY_MS = 5000;
-  let updateListenerRegistered = false;
-
-  function normalizeVersionName(v) {
-    return String(v || '').trim().replace(/^v/i, '');
-  }
-
-  async function checkAndroidAppUpdate() {
-    if (!isCapacitorAndroidHost() || !window.Capacitor?.registerPlugin) return;
-
-    const App = window.Capacitor.registerPlugin('App');
-    const Browser = window.Capacitor.registerPlugin('Browser');
-    const updateBanner = document.getElementById('updateBanner');
-    const updateBannerMsg = document.getElementById('updateBannerMsg');
-    const updateBannerBtn = document.getElementById('updateBannerBtn');
-    const updateBannerDismiss = document.getElementById('updateBannerDismiss');
-    const appVersionRow = document.getElementById('appVersionRow');
-    const appVersionEl = document.getElementById('appVersion');
-
-    let localInfo;
-    try {
-      localInfo = await App.getInfo();
-    } catch (e) {
-      return;
-    }
-
-    const localCode = parseInt(localInfo.build, 10) || 0;
-    const localVersion = normalizeVersionName(localInfo.version);
-    if (appVersionEl) {
-      appVersionEl.textContent = 'v' + (localVersion || APP_VERSION || String(localCode));
-    }
-
-    let remote;
-    try {
-      const resp = await fetch(ANDROID_VERSION_URL + '?t=' + Date.now(), { cache: 'no-store' });
-      if (!resp.ok) return;
-      remote = await resp.json();
-    } catch (e) {
-      return;
-    }
-
-    const remoteCode = parseInt(remote.versionCode, 10) || 0;
-    const remoteVersion = normalizeVersionName(remote.versionName);
-    if (!remoteCode || !remote.apkUrl) return;
-    if (localCode > 0 && remoteCode <= localCode) return;
-    if (localVersion && remoteVersion && localVersion === remoteVersion) return;
-
-    const dismissedCode = parseInt(localStorage.getItem(UPDATE_DISMISS_KEY) || '0', 10);
-    if (dismissedCode >= remoteCode) return;
-
-    updateBannerMsg.textContent = (remoteVersion ? 'الإصدار ' + remoteVersion + ' — ' : '') +
-      (remote.notes || 'حمّل النسخة الجديدة وثبّتها فوق القديمة.');
-    updateBanner.classList.add('visible');
-    document.body.classList.add('has-update-banner');
-
-    updateBannerBtn.onclick = () => {
-      Browser.open({ url: remote.apkUrl }).catch(() => {
-        window.open(remote.apkUrl, '_blank');
-      });
-    };
-
-    updateBannerDismiss.onclick = () => {
-      localStorage.setItem(UPDATE_DISMISS_KEY, String(remoteCode));
-      updateBanner.classList.remove('visible');
-      document.body.classList.remove('has-update-banner');
-    };
-
-    if (!updateListenerRegistered) {
-      updateListenerRegistered = true;
-      try {
-        await App.addListener('appStateChange', ({ isActive }) => {
-          if (isActive) setTimeout(checkAndroidAppUpdate, UPDATE_CHECK_DELAY_MS);
-        });
-      } catch (e) {}
-    }
-  }
-
-  if (isCapacitorAndroidHost()) {
-    setTimeout(checkAndroidAppUpdate, UPDATE_CHECK_DELAY_MS);
-  } else {
-    const appVersionEl = document.getElementById('appVersion');
-    if (appVersionEl) appVersionEl.textContent = 'v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.1.7');
+  // ---- Android update check (every open + when returning to app) ----
+  const appVersionEl = document.getElementById('appVersion');
+  if (window.LammahUpdate) {
+    window.LammahUpdate.getLocalInfo().then(info => {
+      if (appVersionEl) appVersionEl.textContent = 'v' + (info.version || APP_VERSION);
+    }).catch(() => {
+      if (appVersionEl) appVersionEl.textContent = 'v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.1.8');
+    });
+    window.LammahUpdate.startAutoUpdateChecks();
+  } else if (appVersionEl) {
+    appVersionEl.textContent = 'v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.1.8');
   }
 
   renderEmpty();

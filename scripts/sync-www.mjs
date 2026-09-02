@@ -19,6 +19,7 @@ const files = [
   'db.js',
   'theme.js',
   'theme.css',
+  'update.js',
   'data.json'
 ];
 
