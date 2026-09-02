@@ -1032,8 +1032,17 @@
     let bestText = '';
     let bestScore = -1;
     let bestParsed = { letters: '', digits: '', token: '' };
+    const expanded = [];
     for (const text of candidates) {
       if (!text || !String(text).trim()) continue;
+      expanded.push(String(text).trim());
+      const cleaned = stripBidiMarks(normalizeDigits(stripTashkeel(text)));
+      for (const m of cleaned.match(/[\u0621-\u064A]{2,4}[\s\u0660-\u0669\d]{2,8}|[\u0660-\u0669\d]{2,8}[\s\u0621-\u064A]{2,4}/g) || []) {
+        expanded.push(m.trim());
+      }
+    }
+    for (const text of expanded) {
+      if (!text) continue;
       const parsed = parseSaudiPlateSpeech(text);
       const score = scorePlateCandidate(parsed);
       if (score > bestScore) {
@@ -1301,10 +1310,20 @@
   let finalTranscriptBuffer = '';
   let lastSearchedToken = '';
   let pauseListeningForAlarm = false;
-  let voiceStopEngine = () => {};
-  let voiceStartEngine = () => {};
+  let voiceStopEngine = () => Promise.resolve();
+  let voiceStartEngine = () => Promise.resolve();
+  let nativeVoiceChain = Promise.resolve();
   const micLabel = document.getElementById('micLabel');
   const MIC_OPEN_HINT = '🎙️ المايك مفتوح — قول أي لوحة في أي وقت';
+
+  function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function queueNativeVoiceOp(task) {
+    nativeVoiceChain = nativeVoiceChain.then(task, task);
+    return nativeVoiceChain;
+  }
 
   function setMicUi(active) {
     if (active) {
@@ -1333,10 +1352,10 @@
     softRestarting = true;
     clearTimeout(restartTimer);
     voiceStopEngine();
-    restartTimer = setTimeout(() => {
+    restartTimer = setTimeout(async () => {
       softRestarting = false;
-      voiceStartEngine();
-    }, delayMs || 280);
+      await voiceStartEngine();
+    }, delayMs || 500);
   }
 
   function handleVoicePlate(parsed, rawText) {
@@ -1354,14 +1373,14 @@
       softRestarting = true;
       voiceStopEngine();
       clearTimeout(restartTimer);
-      restartTimer = setTimeout(() => {
+      restartTimer = setTimeout(async () => {
         pauseListeningForAlarm = false;
         softRestarting = false;
         resetVoiceBuffer();
         clearPlateFields();
         if (micOpen) {
           setListeningStatus(MIC_OPEN_HINT, 'listening-text');
-          voiceStartEngine();
+          await voiceStartEngine();
         }
       }, 5200);
     } else {
@@ -1383,6 +1402,13 @@
     if (best.text) finalTranscriptBuffer = best.text;
     setPlateFields(best.parsed);
 
+    if (micOpen && (best.parsed.letters || best.parsed.digits)) {
+      const live = formatPlateSpeechDisplay(best.parsed);
+      if (live) setListeningStatus('🎙️ ' + live, 'listening-text');
+    } else if (micOpen && best.text) {
+      setListeningStatus('🎙️ ' + best.text.slice(0, 48), 'listening-text');
+    }
+
     clearTimeout(idleResetTimer);
     if (handleVoicePlate(best.parsed, best.text)) return;
 
@@ -1393,36 +1419,37 @@
         handleVoicePlate(live, finalTranscriptBuffer);
       } else {
         resetVoiceBuffer();
-        scheduleVoiceRestart(280);
+        scheduleVoiceRestart(400);
       }
-    }, 2200);
+    }, 2800);
   }
 
-  function disableMicSession() {
+  async function disableMicSession() {
     micOpen = false;
     pauseListeningForAlarm = false;
-    softRestarting = false;
+    softRestarting = true;
     clearTimeout(restartTimer);
     clearTimeout(idleResetTimer);
     resetVoiceBuffer();
-    voiceStopEngine();
+    await voiceStopEngine();
+    softRestarting = false;
     setMicUi(false);
     setListeningStatus('المايك مقفول', '');
   }
 
-  let enableMicSession = function enableMicSessionImpl() {
+  let enableMicSession = async function enableMicSessionImpl() {
     micOpen = true;
     pauseListeningForAlarm = false;
     softRestarting = false;
     resetVoiceBuffer();
     setMicUi(true);
     setListeningStatus(MIC_OPEN_HINT, 'listening-text');
-    voiceStartEngine();
+    await voiceStartEngine();
   };
 
-  micBtn.addEventListener('click', () => {
-    if (micOpen) disableMicSession();
-    else enableMicSession();
+  micBtn.addEventListener('click', async () => {
+    if (micOpen) await disableMicSession();
+    else await enableMicSession();
   });
 
   onMatchPopupClosed = () => {
@@ -1432,7 +1459,7 @@
       resetVoiceBuffer();
       clearTimeout(restartTimer);
       setListeningStatus(MIC_OPEN_HINT, 'listening-text');
-      voiceStartEngine();
+      await voiceStartEngine();
     }
   };
 
@@ -1466,24 +1493,38 @@
           setMicUi(true);
           if (!pauseListeningForAlarm) setListeningStatus(MIC_OPEN_HINT, 'listening-text');
         } else if (event.status === 'stopped' && micOpen && !pauseListeningForAlarm && !softRestarting) {
-          scheduleVoiceRestart(320);
+          scheduleVoiceRestart(600);
         }
       });
       await nativeSpeech.addListener('endOfSegmentedSession', () => {
         if (micOpen && !pauseListeningForAlarm && !softRestarting) {
-          scheduleVoiceRestart(320);
+          scheduleVoiceRestart(600);
         }
       });
       nativeListenersReady = true;
     }
 
-    voiceStopEngine = () => {
-      nativeSpeech.stop().catch(() => {});
-    };
+    voiceStopEngine = () => queueNativeVoiceOp(async () => {
+      softRestarting = true;
+      try {
+        await nativeSpeech.stop();
+      } catch (e) { /* ignore */ }
+      await delay(500);
+    });
 
-    voiceStartEngine = async () => {
+    voiceStartEngine = () => queueNativeVoiceOp(async () => {
       if (!micOpen || pauseListeningForAlarm) return;
       try {
+        let listening = false;
+        try {
+          const state = await nativeSpeech.isListening();
+          listening = !!(state && state.listening);
+        } catch (e) { /* ignore */ }
+        if (listening) {
+          try { await nativeSpeech.stop(); } catch (e) { /* ignore */ }
+          await delay(500);
+        }
+
         const avail = await nativeSpeech.available();
         if (!avail.available) {
           setListeningStatus('⚠️ التعرف على الصوت غير متاح على هذا الجهاز', '');
@@ -1491,14 +1532,17 @@
           setMicUi(false);
           return;
         }
+
         await nativeSpeech.start({
           language: 'ar-SA',
           maxResults: 5,
           partialResults: true,
-          popup: false,
-          allowForSilence: 2800
+          popup: false
         });
         micPermissionGranted = true;
+        if (micOpen && !pauseListeningForAlarm) {
+          setListeningStatus(MIC_OPEN_HINT, 'listening-text');
+        }
       } catch (err) {
         if (!micOpen) return;
         const msg = String(err && err.message ? err.message : err);
@@ -1508,9 +1552,10 @@
           setMicUi(false);
           return;
         }
-        scheduleVoiceRestart(600);
+        await delay(700);
+        if (micOpen && !pauseListeningForAlarm) scheduleVoiceRestart(700);
       }
-    };
+    });
 
     enableMicSession = async () => {
       try {
@@ -1528,7 +1573,7 @@
           return;
         }
         await ensureNativeListeners();
-        enableMicSessionImpl();
+      await enableMicSessionImpl();
       } catch (err) {
         setListeningStatus('⚠️ تعذر تفعيل المايك: ' + (err.message || err), '');
         micOpen = false;
