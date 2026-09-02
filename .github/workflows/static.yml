@@ -28,7 +28,7 @@ jobs:
       - name: Prepare web publish folder
         run: |
           mkdir -p _site
-          cp index.html chassis.html history.html settings.html db.js theme.js theme.css update.js data.json _site/
+          cp index.html chassis.html history.html settings.html db.js theme.js theme.css update.js gemini-voice.js data.json _site/
           cp capacitor.js _site/ 2>/dev/null || true
           cp plates.txt.gz android-version.json _site/ 2>/dev/null || true
           mkdir -p _site/vendor

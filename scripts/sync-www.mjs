@@ -21,6 +21,7 @@ const files = [
   'theme.js',
   'theme.css',
   'update.js',
+  'gemini-voice.js',
   'data.json'
 ];
 

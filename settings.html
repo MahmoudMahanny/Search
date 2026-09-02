@@ -189,12 +189,41 @@
   </div>
 
   <div class="settings-card">
+    <div class="settings-label" style="margin-bottom:4px">بحث صوت Gemini</div>
+    <span class="settings-hint" style="display:block;margin-bottom:12px">
+      يستمع عبر Gemini Live ثم يتشك على اللوحات في قاعدتك (تطابق تام + صفارة). يحتاج إنترنت ومفتاح API.
+      <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:var(--accent)">الحصول على مفتاح</a>
+    </span>
+    <div class="settings-row">
+      <div>
+        <div class="settings-label">تفعيل Gemini</div>
+        <span class="settings-hint">عند الإيقاف يُستخدم مايك جوجل/المتصفح</span>
+      </div>
+      <div class="theme-toggle" role="group" aria-label="Gemini">
+        <button type="button" id="geminiOnBtn">تشغيل</button>
+        <button type="button" id="geminiOffBtn">إيقاف</button>
+      </div>
+    </div>
+    <div class="settings-row" style="flex-direction:column;align-items:stretch">
+      <label class="settings-label" for="geminiKeyInput">مفتاح Gemini API</label>
+      <input id="geminiKeyInput" type="password" autocomplete="off" spellcheck="false"
+        placeholder="AIza..."
+        style="margin-top:8px;width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);font-family:inherit;font-size:14px;direction:ltr;text-align:left">
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button type="button" id="geminiSaveBtn" class="update-btn" style="flex:1">💾 حفظ المفتاح</button>
+        <button type="button" id="geminiClearBtn" class="update-btn" style="flex:0.55;background:transparent;color:var(--muted);border:1px solid var(--border)">مسح</button>
+      </div>
+      <div id="geminiKeyStatus" class="update-status"></div>
+    </div>
+  </div>
+
+  <div class="settings-card">
     <div class="settings-row">
       <div>
         <div class="settings-label">إصدار التطبيق</div>
         <span class="settings-hint" id="buildHint">رقم البناء</span>
       </div>
-      <div class="version-badge" id="versionBadge">v0.1.13</div>
+      <div class="version-badge" id="versionBadge">v0.1.14</div>
     </div>
     <div class="settings-row">
       <div>
@@ -227,6 +256,7 @@
 </script>
 <script src="db.js"></script>
 <script src="update.js"></script>
+<script src="gemini-voice.js"></script>
 <script>
 (async function () {
   const darkBtn = document.getElementById('themeDarkBtn');
@@ -236,6 +266,12 @@
   const platformBadge = document.getElementById('platformBadge');
   const checkUpdateBtn = document.getElementById('checkUpdateBtn');
   const updateStatus = document.getElementById('updateStatus');
+  const geminiOnBtn = document.getElementById('geminiOnBtn');
+  const geminiOffBtn = document.getElementById('geminiOffBtn');
+  const geminiKeyInput = document.getElementById('geminiKeyInput');
+  const geminiSaveBtn = document.getElementById('geminiSaveBtn');
+  const geminiClearBtn = document.getElementById('geminiClearBtn');
+  const geminiKeyStatus = document.getElementById('geminiKeyStatus');
 
   function syncThemeButtons() {
     const theme = window.LammahTheme.getTheme();
@@ -253,8 +289,58 @@
   });
   syncThemeButtons();
 
-  versionBadge.textContent = 'v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.1.13');
-  buildHint.textContent = 'كود البناء ' + (typeof APP_VERSION_CODE !== 'undefined' ? APP_VERSION_CODE : '14');
+  function syncGeminiUi() {
+    const g = window.LammahGeminiVoice;
+    if (!g) return;
+    const enabled = g.isEnabled();
+    geminiOnBtn.classList.toggle('active', enabled);
+    geminiOffBtn.classList.toggle('active', !enabled);
+    const key = g.getApiKey();
+    if (key && !geminiKeyInput.value) geminiKeyInput.placeholder = '••••••••' + key.slice(-4);
+    if (!key) {
+      geminiKeyStatus.className = 'update-status warn';
+      geminiKeyStatus.textContent = enabled
+        ? '⚠️ فعّل المفتاح أولًا عشان Gemini يشتغل'
+        : 'Gemini متوقف — هيُستخدم مايك جوجل/المتصفح';
+    } else if (enabled) {
+      geminiKeyStatus.className = 'update-status ok';
+      geminiKeyStatus.textContent = '✅ Gemini جاهز — عند فتح المايك هيبحث في قاعدتك';
+    } else {
+      geminiKeyStatus.className = 'update-status';
+      geminiKeyStatus.textContent = 'المفتاح محفوظ لكن Gemini متوقف';
+    }
+  }
+
+  geminiOnBtn.addEventListener('click', () => {
+    window.LammahGeminiVoice.setEnabled(true);
+    syncGeminiUi();
+  });
+  geminiOffBtn.addEventListener('click', () => {
+    window.LammahGeminiVoice.setEnabled(false);
+    syncGeminiUi();
+  });
+  geminiSaveBtn.addEventListener('click', () => {
+    const v = geminiKeyInput.value.trim();
+    if (!v) {
+      geminiKeyStatus.className = 'update-status err';
+      geminiKeyStatus.textContent = '⚠️ الصق المفتاح أولًا';
+      return;
+    }
+    window.LammahGeminiVoice.setApiKey(v);
+    window.LammahGeminiVoice.setEnabled(true);
+    geminiKeyInput.value = '';
+    syncGeminiUi();
+  });
+  geminiClearBtn.addEventListener('click', () => {
+    window.LammahGeminiVoice.setApiKey('');
+    geminiKeyInput.value = '';
+    geminiKeyInput.placeholder = 'AIza...';
+    syncGeminiUi();
+  });
+  syncGeminiUi();
+
+  versionBadge.textContent = 'v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.1.15');
+  buildHint.textContent = 'كود البناء ' + (typeof APP_VERSION_CODE !== 'undefined' ? APP_VERSION_CODE : '16');
 
   const isApp = window.LammahUpdate ? window.LammahUpdate.isAppShell() : !!window.__LAMMAH_APP_SHELL__;
   platformBadge.textContent = isApp ? 'تطبيق أندرويد' : 'موقع ويب';
