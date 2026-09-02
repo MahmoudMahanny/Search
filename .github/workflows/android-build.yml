@@ -48,3 +48,14 @@ jobs:
           name: lammah-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Publish APK to GitHub Release (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="android-$(date +%Y.%m.%d)-${{ github.run_number }}"
+          cp android/app/build/outputs/apk/debug/app-debug.apk lammah.apk
+          gh release create "$VERSION" lammah.apk \
+            --title "لمّاح Android $VERSION" \
+            --notes "APK مباشر — حمّل lammah.apk من الموبايل بدون فك ضغط."
