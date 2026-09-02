@@ -1,6 +1,6 @@
 {
-  "versionCode": 17,
-  "versionName": "0.1.16",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.16/lammah.apk",
-  "notes": "تحسين البحث الصوتي + هزاز أقوى عند إيجاد اللوحة"
+  "versionCode": 18,
+  "versionName": "0.1.17",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.17/lammah.apk",
+  "notes": "بحث صوتي أسرع (جلسة مستمرة) — نفس الإصدار على الويب والتطبيق"
 }

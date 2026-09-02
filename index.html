@@ -1391,6 +1391,8 @@
 
   function scheduleVoiceRestart(delayMs) {
     if (!micOpen || pauseListeningForAlarm) return;
+    // Live engine stays connected — no tear-down/restart loop.
+    if (voiceEngineMode === 'gemini') return;
     softRestarting = true;
     clearTimeout(restartTimer);
     voiceStopEngine();
@@ -1408,32 +1410,53 @@
     setPlateFields(parsed);
     const display = formatPlateSpeechDisplay(parsed);
     const found = renderResults(rawText || parsed.token);
+    const keepLive = voiceEngineMode === 'gemini' && geminiSession;
 
     if (found) {
       setListeningStatus('✅ سمعت: ' + display + ' — المايك لسه مفتوح', 'ok-text');
-      pauseListeningForAlarm = true;
-      softRestarting = true;
-      voiceStopEngine();
-      clearTimeout(restartTimer);
-      restartTimer = setTimeout(async () => {
-        pauseListeningForAlarm = false;
-        softRestarting = false;
-        resetVoiceBuffer();
-        clearPlateFields();
-        if (micOpen) {
-          setListeningStatus(voiceOpenHint(), 'listening-text');
-          await voiceStartEngine();
-        }
-      }, 5200);
+      if (keepLive) {
+        // Keep the live socket open — only ignore duplicates briefly for speed.
+        pauseListeningForAlarm = true;
+        clearTimeout(restartTimer);
+        restartTimer = setTimeout(() => {
+          pauseListeningForAlarm = false;
+          clearPlateFields();
+          geminiInputBuffer = '';
+          // Allow re-search of the same plate after a short cool-down.
+          if (lastSearchedToken === parsed.token) lastSearchedToken = '';
+          if (micOpen) setListeningStatus(voiceOpenHint(), 'listening-text');
+        }, 1600);
+      } else {
+        pauseListeningForAlarm = true;
+        softRestarting = true;
+        voiceStopEngine();
+        clearTimeout(restartTimer);
+        restartTimer = setTimeout(async () => {
+          pauseListeningForAlarm = false;
+          softRestarting = false;
+          resetVoiceBuffer();
+          clearPlateFields();
+          if (micOpen) {
+            setListeningStatus(voiceOpenHint(), 'listening-text');
+            await voiceStartEngine();
+          }
+        }, 3200);
+      }
     } else {
       setListeningStatus('🔁 سمعت: ' + display + ' — مفيش تطابق تام، قول تاني', 'listening-text');
       clearTimeout(idleResetTimer);
       idleResetTimer = setTimeout(() => {
         clearPlateFields();
-        resetVoiceBuffer();
-        scheduleVoiceRestart(280);
+        if (!keepLive) {
+          resetVoiceBuffer();
+          scheduleVoiceRestart(200);
+        } else {
+          geminiInputBuffer = '';
+          finalTranscriptBuffer = '';
+          if (lastSearchedToken === parsed.token) lastSearchedToken = '';
+        }
         if (micOpen) setListeningStatus(voiceOpenHint(), 'listening-text');
-      }, 1600);
+      }, keepLive ? 450 : 900);
     }
     return true;
   }
@@ -1454,16 +1477,23 @@
     clearTimeout(idleResetTimer);
     if (handleVoicePlate(best.parsed, best.text)) return;
 
+    const idleMs = voiceEngineMode === 'gemini' ? 850 : 1800;
     idleResetTimer = setTimeout(() => {
       if (pauseListeningForAlarm || !micOpen) return;
       const live = parseSaudiPlateSpeech(finalTranscriptBuffer);
       if (live.letters.length === 3 && live.digits.length === 4) {
         handleVoicePlate(live, finalTranscriptBuffer);
-      } else {
+      } else if (voiceEngineMode !== 'gemini') {
         resetVoiceBuffer();
-        scheduleVoiceRestart(400);
+        scheduleVoiceRestart(300);
+      } else {
+        // Live engine stays open — just clear stale partials.
+        if (!live.letters && !live.digits) {
+          geminiInputBuffer = '';
+          finalTranscriptBuffer = '';
+        }
       }
-    }, 2800);
+    }, idleMs);
   }
 
   async function disableMicSession() {
@@ -1498,10 +1528,16 @@
     if (micOpen && pauseListeningForAlarm) {
       pauseListeningForAlarm = false;
       softRestarting = false;
-      resetVoiceBuffer();
       clearTimeout(restartTimer);
       setListeningStatus(voiceOpenHint(), 'listening-text');
-      await voiceStartEngine();
+      // Live voice session stays open — only restart legacy engines.
+      if (voiceEngineMode !== 'gemini') {
+        resetVoiceBuffer();
+        await voiceStartEngine();
+      } else {
+        geminiInputBuffer = '';
+        try { if (geminiSession && geminiSession.resumeSend) geminiSession.resumeSend(); } catch (e) {}
+      }
     }
   };
 
@@ -1519,7 +1555,6 @@
         if (pauseListeningForAlarm || !micOpen) return;
         const t = String(text || '').trim();
         if (!t) return;
-        // Input transcription may be cumulative or chunked — keep a rolling buffer.
         if (!isFinalish) {
           if (t.length >= geminiInputBuffer.length && t.startsWith(geminiInputBuffer.slice(0, Math.min(12, geminiInputBuffer.length)))) {
             geminiInputBuffer = t;
@@ -1551,7 +1586,6 @@
     };
     voiceStartEngine = async () => {
       if (!micOpen || pauseListeningForAlarm) return;
-      geminiInputBuffer = '';
       try {
         await geminiSession.start();
         if (micOpen && !pauseListeningForAlarm) setListeningStatus(voiceOpenHint(), 'listening-text');
@@ -1559,7 +1593,6 @@
         if (!micOpen) return;
         const msg = String(err && err.message ? err.message : err);
         setListeningStatus('⚠️ تعذر فتح المايك: ' + msg, '');
-        // Fall back to native/web if Gemini fails to start
         voiceEngineMode = '';
         geminiSession = null;
         throw err;
