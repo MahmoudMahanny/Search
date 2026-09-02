@@ -387,10 +387,15 @@ function loadExternalScript(src) {
 
 async function ensureXlsxLoaded() {
   if (typeof XLSX !== 'undefined') return;
+  const localSrc = resolveAssetUrl('vendor/xlsx.full.min.js');
   try {
-    await loadExternalScript('vendor/xlsx.full.min.js');
+    await loadExternalScript(localSrc);
   } catch (e) {
-    await loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+    try {
+      await loadExternalScript('vendor/xlsx.full.min.js');
+    } catch (e2) {
+      await loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+    }
   }
   if (typeof XLSX === 'undefined') throw new Error('مكتبة الإكسيل لم تُحمَّل');
 }
@@ -401,5 +406,5 @@ async function ensureTesseractLoaded() {
   if (typeof Tesseract === 'undefined') throw new Error('مكتبة القراءة البصرية لم تُحمَّل — محتاج إنترنت');
 }
 
-const APP_VERSION = '0.1.10';
-const APP_VERSION_CODE = 11;
+const APP_VERSION = '0.1.11';
+const APP_VERSION_CODE = 12;
