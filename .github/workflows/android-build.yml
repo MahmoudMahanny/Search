@@ -10,9 +10,13 @@ on:
       - "history.html"
       - "db.js"
       - "android/**"
+      - "android-version.json"
       - "capacitor.config.json"
       - "package.json"
       - "scripts/**"
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -32,6 +36,28 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+
+      - name: Bump Android version (manual release)
+        if: github.event_name == 'workflow_dispatch'
+        id: ver
+        run: |
+          VERSION_CODE=${{ github.run_number }}
+          VERSION_NAME="1.0.${{ github.run_number }}"
+          TAG="android-v${VERSION_NAME}"
+          APK_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/lammah.apk"
+          sed -i "s/versionCode [0-9]*/versionCode ${VERSION_CODE}/" android/app/build.gradle
+          sed -i "s/versionName \"[^\"]*\"/versionName \"${VERSION_NAME}\"/" android/app/build.gradle
+          cat > android-version.json <<EOF
+          {
+            "versionCode": ${VERSION_CODE},
+            "versionName": "${VERSION_NAME}",
+            "apkUrl": "${APK_URL}",
+            "notes": "تحديث جديد — اضغط «تحديث الآن» داخل التطبيق أو حمّل lammah.apk مباشرة."
+          }
+          EOF
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies and sync Capacitor
         run: |
@@ -54,8 +80,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="android-$(date +%Y.%m.%d)-${{ github.run_number }}"
           cp android/app/build/outputs/apk/debug/app-debug.apk lammah.apk
-          gh release create "$VERSION" lammah.apk \
-            --title "لمّاح Android $VERSION" \
-            --notes "APK مباشر — حمّل lammah.apk من الموبايل بدون فك ضغط."
+          gh release create "${{ steps.ver.outputs.tag }}" lammah.apk \
+            --title "لمّاح Android ${{ steps.ver.outputs.version_name }}" \
+            --notes "APK مباشر — حمّل **lammah.apk** من الموبايل.
+
+          المستخدمون الحاليون: افتحوا التطبيق واضغطوا **«تحديث الآن»** في الإشعار."
+
+      - name: Commit version manifest after release
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add android-version.json android/app/build.gradle
+          git diff --staged --quiet && exit 0
+          git commit -m "chore(android): release ${{ steps.ver.outputs.version_name }}"
+          git push

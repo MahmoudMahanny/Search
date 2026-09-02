@@ -14,7 +14,8 @@ const files = [
   'chassis.html',
   'history.html',
   'db.js',
-  'data.json'
+  'data.json',
+  'android-version.json'
 ];
 
 const optional = ['plates.txt.gz'];
