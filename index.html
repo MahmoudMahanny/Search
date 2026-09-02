@@ -283,6 +283,66 @@
     animation: pulse 1.1s infinite;
   }
   .media-btn-primary.listening .media-label { color: #fff; }
+
+  .mic-live-banner {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin: 10px 0 2px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(224, 90, 90, 0.45);
+    background: linear-gradient(180deg, rgba(224, 90, 90, 0.18), rgba(224, 90, 90, 0.08));
+    color: #ffd7d7;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+  }
+  .mic-live-banner.visible { display: flex; }
+  .mic-live-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #e05a5a;
+    box-shadow: 0 0 0 0 rgba(224, 90, 90, 0.7);
+    animation: micLivePulse 1.2s infinite;
+    flex-shrink: 0;
+  }
+  @keyframes micLivePulse {
+    0% { box-shadow: 0 0 0 0 rgba(224, 90, 90, 0.65); }
+    70% { box-shadow: 0 0 0 10px rgba(224, 90, 90, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(224, 90, 90, 0); }
+  }
+  .mic-live-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 16px;
+    flex-shrink: 0;
+  }
+  .mic-live-bars span {
+    width: 3px;
+    border-radius: 2px;
+    background: #e05a5a;
+    animation: micBar 0.9s ease-in-out infinite;
+  }
+  .mic-live-bars span:nth-child(1) { height: 6px; animation-delay: 0s; }
+  .mic-live-bars span:nth-child(2) { height: 12px; animation-delay: 0.12s; }
+  .mic-live-bars span:nth-child(3) { height: 8px; animation-delay: 0.24s; }
+  .mic-live-bars span:nth-child(4) { height: 14px; animation-delay: 0.08s; }
+  .mic-live-bars span:nth-child(5) { height: 7px; animation-delay: 0.2s; }
+  @keyframes micBar {
+    0%, 100% { transform: scaleY(0.45); opacity: 0.65; }
+    50% { transform: scaleY(1); opacity: 1; }
+  }
+  body.mic-live .search-card {
+    border-color: rgba(224, 90, 90, 0.35);
+  }
+  html[data-theme="light"] .mic-live-banner {
+    color: #7a1f1f;
+    background: linear-gradient(180deg, rgba(224, 90, 90, 0.14), rgba(224, 90, 90, 0.06));
+  }
   #camBtn {
     border-color: var(--accent-dim);
     color: var(--accent);
@@ -667,7 +727,7 @@
         <div id="plateLatin" class="plate-latin"></div>
       </div>
     </div>
-    <div class="plate-hint">٣ حروف عربية + ٤ أرقام — فعّل المايك وقول اللوحة</div>
+    <div class="plate-hint">٣ حروف عربية + ٤ أرقام — فعّل المايك ويبقى شغال باستمرار</div>
 
     <div class="media-actions">
       <button id="camBtn" class="media-btn" title="التقاط صورة">
@@ -681,6 +741,12 @@
       </button>
       <input id="camInput" type="file" accept="image/*" capture="environment" style="display:none" />
       <input id="uploadInput" type="file" accept="image/*" style="display:none" />
+    </div>
+
+    <div id="micLiveBanner" class="mic-live-banner" role="status" aria-live="polite" hidden>
+      <span class="mic-live-dot" aria-hidden="true"></span>
+      <span class="mic-live-bars" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></span>
+      <span id="micLiveText">المايك شغال الآن — استماع مستمر</span>
     </div>
 
     <div id="statusLine" class="status-line"></div>
@@ -1342,17 +1408,17 @@
   let geminiSession = null;
   let geminiInputBuffer = '';
   const micLabel = document.getElementById('micLabel');
-  const MIC_OPEN_HINT = '🎙️ المايك مفتوح — قول أي لوحة في أي وقت';
-  const MIC_GEMINI_HINT = '🎙️ المايك مفتوح — قول أي لوحة في أي وقت';
+  const micLiveBanner = document.getElementById('micLiveBanner');
+  const micLiveText = document.getElementById('micLiveText');
+  const MIC_OPEN_HINT = '🎙️ المايك شغال باستمرار — قول أي لوحة في أي وقت';
+  const MIC_GEMINI_HINT = '🎙️ المايك شغال باستمرار — قول أي لوحة في أي وقت';
 
   function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   function voiceOpenHint() {
-    return (window.LammahGeminiVoice && window.LammahGeminiVoice.isConfigured())
-      ? MIC_GEMINI_HINT
-      : MIC_OPEN_HINT;
+    return MIC_OPEN_HINT;
   }
 
   function normalizePlateParts(letters, digits) {
@@ -1369,12 +1435,23 @@
   function setMicUi(active) {
     if (active) {
       micBtn.classList.add('listening');
-      micLabel.textContent = 'مفتوح';
+      micLabel.textContent = 'شغال';
       micBtn.title = 'إيقاف الاستماع';
+      document.body.classList.add('mic-live');
+      if (micLiveBanner) {
+        micLiveBanner.hidden = false;
+        micLiveBanner.classList.add('visible');
+      }
+      if (micLiveText) micLiveText.textContent = 'المايك شغال الآن — استماع مستمر';
     } else {
       micBtn.classList.remove('listening');
       micLabel.textContent = 'مايك';
       micBtn.title = 'تفعيل الاستماع';
+      document.body.classList.remove('mic-live');
+      if (micLiveBanner) {
+        micLiveBanner.hidden = true;
+        micLiveBanner.classList.remove('visible');
+      }
     }
   }
 
@@ -1410,59 +1487,43 @@
     setPlateFields(parsed);
     const display = formatPlateSpeechDisplay(parsed);
     const found = renderResults(rawText || parsed.token);
-    const keepLive = voiceEngineMode === 'gemini' && geminiSession;
+
+    // Never stop/restart the mic on match — stay listening the whole time
+    // the user left the mic open. Only block re-firing the same plate briefly.
+    clearTimeout(restartTimer);
+    restartTimer = setTimeout(() => {
+      if (lastSearchedToken === parsed.token) lastSearchedToken = '';
+    }, 2200);
 
     if (found) {
-      setListeningStatus('✅ سمعت: ' + display + ' — المايك لسه مفتوح', 'ok-text');
-      if (keepLive) {
-        // Keep the live socket open — only ignore duplicates briefly for speed.
-        pauseListeningForAlarm = true;
-        clearTimeout(restartTimer);
-        restartTimer = setTimeout(() => {
-          pauseListeningForAlarm = false;
-          clearPlateFields();
-          geminiInputBuffer = '';
-          // Allow re-search of the same plate after a short cool-down.
-          if (lastSearchedToken === parsed.token) lastSearchedToken = '';
-          if (micOpen) setListeningStatus(voiceOpenHint(), 'listening-text');
-        }, 1600);
-      } else {
-        pauseListeningForAlarm = true;
-        softRestarting = true;
-        voiceStopEngine();
-        clearTimeout(restartTimer);
-        restartTimer = setTimeout(async () => {
-          pauseListeningForAlarm = false;
-          softRestarting = false;
-          resetVoiceBuffer();
-          clearPlateFields();
-          if (micOpen) {
-            setListeningStatus(voiceOpenHint(), 'listening-text');
-            await voiceStartEngine();
-          }
-        }, 3200);
-      }
-    } else {
-      setListeningStatus('🔁 سمعت: ' + display + ' — مفيش تطابق تام، قول تاني', 'listening-text');
+      setListeningStatus('✅ سمعت: ' + display + ' — المايك لسه شغال', 'ok-text');
+      if (micLiveText) micLiveText.textContent = 'المايك شغال الآن — استماع مستمر';
+      setMicUi(true);
       clearTimeout(idleResetTimer);
       idleResetTimer = setTimeout(() => {
+        if (!micOpen) return;
         clearPlateFields();
-        if (!keepLive) {
-          resetVoiceBuffer();
-          scheduleVoiceRestart(200);
-        } else {
-          geminiInputBuffer = '';
-          finalTranscriptBuffer = '';
-          if (lastSearchedToken === parsed.token) lastSearchedToken = '';
-        }
-        if (micOpen) setListeningStatus(voiceOpenHint(), 'listening-text');
-      }, keepLive ? 450 : 900);
+        geminiInputBuffer = '';
+        finalTranscriptBuffer = '';
+        setListeningStatus(voiceOpenHint(), 'listening-text');
+      }, 900);
+    } else {
+      setListeningStatus('🔁 سمعت: ' + display + ' — مفيش تطابق تام، قول تاني', 'listening-text');
+      setMicUi(true);
+      clearTimeout(idleResetTimer);
+      idleResetTimer = setTimeout(() => {
+        if (!micOpen) return;
+        clearPlateFields();
+        geminiInputBuffer = '';
+        finalTranscriptBuffer = '';
+        setListeningStatus(voiceOpenHint(), 'listening-text');
+      }, 500);
     }
     return true;
   }
 
   function processTranscriptCandidates(candidates) {
-    if (pauseListeningForAlarm) return;
+    if (!micOpen) return;
     const best = pickBestTranscript(candidates.filter(Boolean));
     if (best.text) finalTranscriptBuffer = best.text;
     setPlateFields(best.parsed);
@@ -1479,15 +1540,15 @@
 
     const idleMs = voiceEngineMode === 'gemini' ? 850 : 1800;
     idleResetTimer = setTimeout(() => {
-      if (pauseListeningForAlarm || !micOpen) return;
+      if (!micOpen) return;
       const live = parseSaudiPlateSpeech(finalTranscriptBuffer);
       if (live.letters.length === 3 && live.digits.length === 4) {
         handleVoicePlate(live, finalTranscriptBuffer);
       } else if (voiceEngineMode !== 'gemini') {
+        // Web/native speech engines sometimes need a soft nudge — never fully close.
         resetVoiceBuffer();
-        scheduleVoiceRestart(300);
+        scheduleVoiceRestart(200);
       } else {
-        // Live engine stays open — just clear stale partials.
         if (!live.letters && !live.digits) {
           geminiInputBuffer = '';
           finalTranscriptBuffer = '';
@@ -1525,20 +1586,10 @@
   });
 
   onMatchPopupClosed = async () => {
-    if (micOpen && pauseListeningForAlarm) {
-      pauseListeningForAlarm = false;
-      softRestarting = false;
-      clearTimeout(restartTimer);
-      setListeningStatus(voiceOpenHint(), 'listening-text');
-      // Live voice session stays open — only restart legacy engines.
-      if (voiceEngineMode !== 'gemini') {
-        resetVoiceBuffer();
-        await voiceStartEngine();
-      } else {
-        geminiInputBuffer = '';
-        try { if (geminiSession && geminiSession.resumeSend) geminiSession.resumeSend(); } catch (e) {}
-      }
-    }
+    // Mic stays open continuously — closing the popup must not restart/stop it.
+    pauseListeningForAlarm = false;
+    softRestarting = false;
+    if (micOpen) setListeningStatus(voiceOpenHint(), 'listening-text');
   };
 
   function setupGeminiSpeechEngine() {
@@ -1547,12 +1598,15 @@
 
     geminiSession = window.LammahGeminiVoice.createSession({
       onStatus: (state) => {
-        if (!micOpen || pauseListeningForAlarm) return;
+        if (!micOpen) return;
         if (state === 'connecting') setListeningStatus('🎙️ جارٍ تجهيز المايك...', 'listening-text');
-        else if (state === 'connected' || state === 'listening') setListeningStatus(voiceOpenHint(), 'listening-text');
+        else if (state === 'connected' || state === 'listening') {
+          setMicUi(true);
+          setListeningStatus(voiceOpenHint(), 'listening-text');
+        }
       },
       onTranscript: (text, isFinalish) => {
-        if (pauseListeningForAlarm || !micOpen) return;
+        if (!micOpen) return;
         const t = String(text || '').trim();
         if (!t) return;
         if (!isFinalish) {
@@ -1569,7 +1623,7 @@
         }
       },
       onPlate: (plate) => {
-        if (pauseListeningForAlarm || !micOpen) return;
+        if (!micOpen) return;
         const parsed = normalizePlateParts(plate.letters, plate.digits);
         if (parsed.letters.length === 3 && parsed.digits.length === 4) {
           handleVoicePlate(parsed, plate.transcript || parsed.token);
@@ -1585,10 +1639,13 @@
       try { if (geminiSession) geminiSession.stop(); } catch (e) { /* ignore */ }
     };
     voiceStartEngine = async () => {
-      if (!micOpen || pauseListeningForAlarm) return;
+      if (!micOpen) return;
       try {
         await geminiSession.start();
-        if (micOpen && !pauseListeningForAlarm) setListeningStatus(voiceOpenHint(), 'listening-text');
+        if (micOpen) {
+          setMicUi(true);
+          setListeningStatus(voiceOpenHint(), 'listening-text');
+        }
       } catch (err) {
         if (!micOpen) return;
         const msg = String(err && err.message ? err.message : err);
