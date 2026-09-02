@@ -194,7 +194,7 @@
         <div class="settings-label">إصدار التطبيق</div>
         <span class="settings-hint" id="buildHint">رقم البناء</span>
       </div>
-      <div class="version-badge" id="versionBadge">v0.1.11</div>
+      <div class="version-badge" id="versionBadge">v0.1.12</div>
     </div>
     <div class="settings-row">
       <div>
@@ -253,8 +253,8 @@
   });
   syncThemeButtons();
 
-  versionBadge.textContent = 'v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.1.11');
-  buildHint.textContent = 'كود البناء ' + (typeof APP_VERSION_CODE !== 'undefined' ? APP_VERSION_CODE : '12');
+  versionBadge.textContent = 'v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.1.12');
+  buildHint.textContent = 'كود البناء ' + (typeof APP_VERSION_CODE !== 'undefined' ? APP_VERSION_CODE : '13');
 
   const isApp = window.LammahUpdate ? window.LammahUpdate.isAppShell() : !!window.__LAMMAH_APP_SHELL__;
   platformBadge.textContent = isApp ? 'تطبيق أندرويد' : 'موقع ويب';

@@ -1478,22 +1478,120 @@
     }
   };
 
-  const inAppShell = isCapacitorAndroidHost();
-  await waitForCapacitor(inAppShell ? 4000 : 200);
-  isNativeAndroid = inAppShell;
+  let voiceEngineMode = ''; // 'native' | 'web'
+  let nativeListenersReady = false;
 
-  if (inAppShell && !window.Capacitor?.registerPlugin) {
-    enableMicSession = async () => {
-      setListeningStatus(
-        '⚠️ حدّث التطبيق لآخر نسخة — المايك محتاج APK جديد من GitHub Releases',
-        ''
-      );
-      micOpen = false;
-      setMicUi(false);
+  function setupWebSpeechEngine() {
+    if (!WebSpeechRecognition) return false;
+    if (voiceEngineMode === 'web' && recognition) return true;
+
+    recognition = new WebSpeechRecognition();
+    recognition.lang = 'ar-SA';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 10;
+
+    function collectTranscriptCandidates(event, interimText, finalText) {
+      const candidates = [];
+      const combined = (finalText + ' ' + (interimText || '')).trim();
+      if (combined) candidates.push(combined);
+      if (interimText && interimText.trim()) candidates.push(interimText.trim());
+      for (let i = 0; i < event.results.length; i++) {
+        const res = event.results[i];
+        for (let j = 0; j < res.length; j++) {
+          const t = res[j].transcript;
+          if (t && t.trim()) candidates.push(t.trim());
+        }
+      }
+      return candidates;
+    }
+
+    async function startWebListening() {
+      if (!micOpen || pauseListeningForAlarm) return;
+      if (!micPermissionGranted && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach(t => t.stop());
+          micPermissionGranted = true;
+        } catch (permErr) {
+          setListeningStatus(
+            '⚠️ مرفوض إذن المايك (' + (permErr.name || permErr.message) + ') — فعّل المايك من إعدادات التطبيق/المتصفح',
+            ''
+          );
+          micOpen = false;
+          setMicUi(false);
+          return;
+        }
+      }
+      try { recognition.start(); } catch (e) {}
+    }
+
+    voiceStopEngine = () => {
+      try { recognition.stop(); } catch (e) {}
     };
-  } else if (inAppShell && window.Capacitor?.registerPlugin) {
+    voiceStartEngine = () => { startWebListening(); };
+
+    recognition.onstart = () => {
+      setMicUi(true);
+      if (!pauseListeningForAlarm) setListeningStatus(MIC_OPEN_HINT, 'listening-text');
+    };
+    recognition.onresult = (event) => {
+      const finalParts = [];
+      let interimText = '';
+      for (let i = 0; i < event.results.length; i++) {
+        const res = event.results[i];
+        if (res.isFinal) {
+          const segmentBest = pickBestTranscript(
+            Array.from({ length: res.length }, (_, j) => res[j].transcript)
+          );
+          if (segmentBest.text) finalParts.push(segmentBest.text);
+        } else if (i >= event.resultIndex) {
+          interimText += res[0].transcript;
+        }
+      }
+      processTranscriptCandidates(
+        collectTranscriptCandidates(event, interimText, finalParts.join(' ').trim())
+      );
+    };
+    recognition.onerror = (event) => {
+      if (event.error === 'no-speech' || event.error === 'aborted') return;
+      let msg = 'خطأ: ' + event.error;
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        msg = '⚠️ الإذن مرفوض — فعّل المايك من إعدادات التطبيق/المتصفح';
+        micOpen = false;
+        setMicUi(false);
+      } else if (event.error === 'audio-capture') {
+        msg = '⚠️ مفيش مايك متاح على الجهاز ده';
+        micOpen = false;
+        setMicUi(false);
+      } else if (event.error === 'network') {
+        msg = '⚠️ خطأ شبكة — التعرف على الصوت محتاج إنترنت (هحاول تاني...)';
+      }
+      setListeningStatus(msg, '');
+    };
+    recognition.onend = () => {
+      clearTimeout(idleResetTimer);
+      if (softRestarting || pauseListeningForAlarm) return;
+      if (micOpen) {
+        setMicUi(true);
+        clearTimeout(restartTimer);
+        restartTimer = setTimeout(() => { startWebListening(); }, 200);
+        return;
+      }
+      setMicUi(false);
+      if (!statusLine.classList.contains('ok-text')) setListeningStatus('', '');
+    };
+
+    voiceEngineMode = 'web';
+    return true;
+  }
+
+  async function setupNativeSpeechEngine() {
+    if (voiceEngineMode === 'native' && nativeSpeech) return true;
+    if (!window.Capacitor?.registerPlugin) return false;
+
     nativeSpeech = window.Capacitor.registerPlugin('SpeechRecognition');
-    let nativeListenersReady = false;
+    nativeListenersReady = false;
 
     async function ensureNativeListeners() {
       if (nativeListenersReady) return;
@@ -1521,9 +1619,7 @@
 
     voiceStopEngine = () => queueNativeVoiceOp(async () => {
       softRestarting = true;
-      try {
-        await nativeSpeech.stop();
-      } catch (e) { /* ignore */ }
+      try { await nativeSpeech.stop(); } catch (e) { /* ignore */ }
       await delay(500);
     });
 
@@ -1572,141 +1668,62 @@
       }
     });
 
-    enableMicSession = async () => {
-      try {
-        let perm = await nativeSpeech.checkPermissions();
-        if (perm.speechRecognition !== 'granted') {
-          perm = await nativeSpeech.requestPermissions();
-        }
-        if (perm.speechRecognition !== 'granted') {
-          setListeningStatus(
-            '⚠️ محتاج إذن المايك — من إعدادات الجهاز: التطبيقات → لمّاح → الأذونات → الميكروفون',
-            ''
-          );
-          micOpen = false;
-          setMicUi(false);
-          return;
-        }
-        await ensureNativeListeners();
-      await enableMicSessionImpl();
-      } catch (err) {
-        setListeningStatus('⚠️ تعذر تفعيل المايك: ' + (err.message || err), '');
-        micOpen = false;
-        setMicUi(false);
-      }
-    };
-  } else if (WebSpeechRecognition) {
-    // Web (desktop or Android Chrome): browser speech. Native APK uses the path above.
-    recognition = new WebSpeechRecognition();
-    recognition.lang = 'ar-SA';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 10;
+    // Expose for enable path
+    setupNativeSpeechEngine._ensureListeners = ensureNativeListeners;
+    voiceEngineMode = 'native';
+    isNativeAndroid = true;
+    return true;
+  }
 
-    function collectTranscriptCandidates(event, interimText, finalText) {
-      const candidates = [];
-      const combined = (finalText + ' ' + (interimText || '')).trim();
-      if (combined) candidates.push(combined);
-      if (interimText && interimText.trim()) candidates.push(interimText.trim());
-      for (let i = 0; i < event.results.length; i++) {
-        const res = event.results[i];
-        for (let j = 0; j < res.length; j++) {
-          const t = res[j].transcript;
-          if (t && t.trim()) candidates.push(t.trim());
-        }
-      }
-      return candidates;
-    }
+  enableMicSession = async function enableMicSessionLazy() {
+    setListeningStatus('🎙️ جارٍ تجهيز المايك...', 'listening-text');
 
-    voiceStopEngine = () => {
-      try { recognition.stop(); } catch (e) {}
-    };
-
-    voiceStartEngine = () => { startWebListening(); };
-
-    function softRestartRecognition() {
-      scheduleVoiceRestart(280);
-    }
-
-    recognition.onstart = () => {
-      setMicUi(true);
-      if (!pauseListeningForAlarm) setListeningStatus(MIC_OPEN_HINT, 'listening-text');
-    };
-
-    recognition.onresult = (event) => {
-      const finalParts = [];
-      let interimText = '';
-      for (let i = 0; i < event.results.length; i++) {
-        const res = event.results[i];
-        if (res.isFinal) {
-          const segmentBest = pickBestTranscript(
-            Array.from({ length: res.length }, (_, j) => res[j].transcript)
-          );
-          if (segmentBest.text) finalParts.push(segmentBest.text);
-        } else if (i >= event.resultIndex) {
-          interimText += res[0].transcript;
-        }
-      }
-      processTranscriptCandidates(
-        collectTranscriptCandidates(event, interimText, finalParts.join(' ').trim())
-      );
-    };
-
-    recognition.onerror = (event) => {
-      if (event.error === 'no-speech' || event.error === 'aborted') return;
-      let msg = 'خطأ: ' + event.error;
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        msg = '⚠️ الإذن مرفوض — دوس على 🔒 بجانب العنوان وفعّل المايك';
-        micOpen = false;
-        setMicUi(false);
-      } else if (event.error === 'audio-capture') {
-        msg = '⚠️ مفيش مايك متاح على الجهاز ده';
-        micOpen = false;
-        setMicUi(false);
-      } else if (event.error === 'network') {
-        msg = '⚠️ خطأ شبكة — التعرف على الصوت محتاج إنترنت (هحاول تاني...)';
-      }
-      setListeningStatus(msg, '');
-    };
-
-    recognition.onend = () => {
-      clearTimeout(idleResetTimer);
-      if (softRestarting || pauseListeningForAlarm) return;
-      if (micOpen) {
-        setMicUi(true);
-        clearTimeout(restartTimer);
-        restartTimer = setTimeout(() => { startWebListening(); }, 200);
-        return;
-      }
-      setMicUi(false);
-      if (!statusLine.classList.contains('ok-text')) setListeningStatus('', '');
-    };
-
-    async function startWebListening() {
-      if (!micOpen || pauseListeningForAlarm) return;
-      if (!micPermissionGranted && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    // Prefer native Google Speech inside the APK — wait for Capacitor bridge.
+    if (isCapacitorAndroidHost()) {
+      await waitForCapacitor(8000);
+      if (window.Capacitor?.registerPlugin) {
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          stream.getTracks().forEach(t => t.stop());
-          micPermissionGranted = true;
-        } catch (permErr) {
-          setListeningStatus(
-            '⚠️ مرفوض إذن المايك (' + (permErr.name || permErr.message) + ') — فعّل المايك من إعدادات الموقع',
-            ''
-          );
-          micOpen = false;
-          setMicUi(false);
-          return;
+          const ok = await setupNativeSpeechEngine();
+          if (ok) {
+            let perm = await nativeSpeech.checkPermissions();
+            if (perm.speechRecognition !== 'granted') {
+              perm = await nativeSpeech.requestPermissions();
+            }
+            if (perm.speechRecognition !== 'granted') {
+              setListeningStatus(
+                '⚠️ محتاج إذن المايك — من إعدادات الجهاز: التطبيقات → لمّاح → الأذونات → الميكروفون',
+                ''
+              );
+              micOpen = false;
+              setMicUi(false);
+              return;
+            }
+            await setupNativeSpeechEngine._ensureListeners();
+            await enableMicSessionImpl();
+            return;
+          }
+        } catch (err) {
+          // Fall through to Web Speech instead of a dead-end "update APK" message.
+          setListeningStatus('⚠️ المايك الأصلي فشل — بجرب وضع المتصفح...', 'listening-text');
         }
       }
-      try {
-        recognition.start();
-      } catch (e) {}
     }
-  } else {
-    micBtn.disabled = true;
-    micBtn.style.opacity = '0.4';
-    statusLine.textContent = 'البحث الصوتي مش مدعوم في المتصفح ده — استخدم الكتابة';
+
+    if (setupWebSpeechEngine()) {
+      await enableMicSessionImpl();
+      return;
+    }
+
+    setListeningStatus('⚠️ البحث الصوتي مش مدعوم على الجهاز ده — استخدم الكتابة', '');
+    micOpen = false;
+    setMicUi(false);
+  };
+
+  // Warm up Capacitor in the background (don't block the UI).
+  if (isCapacitorAndroidHost()) {
+    waitForCapacitor(10000).then((cap) => {
+      if (cap?.registerPlugin) isNativeAndroid = true;
+    });
   }
 
 
