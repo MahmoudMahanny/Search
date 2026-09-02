@@ -164,8 +164,25 @@
     min-width: 0;
     padding: 4px 2px;
   }
-  #plateInput {
+  .plate-input-row {
+    display: flex;
+    flex-direction: row;
+    direction: rtl;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     width: 100%;
+    min-width: 0;
+  }
+  .plate-field-sep {
+    width: 2px;
+    height: 28px;
+    background: #14140f;
+    opacity: 0.18;
+    flex-shrink: 0;
+    border-radius: 1px;
+  }
+  #plateLetters, #plateDigits {
     background: transparent;
     border: none;
     outline: none;
@@ -173,13 +190,25 @@
     font-family: 'Tajawal', 'Segoe UI', Tahoma, Arial, sans-serif;
     font-weight: 800;
     font-size: 26px;
-    padding: 6px 4px 0;
+    padding: 6px 2px 0;
     text-align: center;
-    letter-spacing: 4px;
-    direction: rtl;
+    letter-spacing: 3px;
     min-width: 0;
   }
-  #plateInput::placeholder {
+  #plateLetters {
+    flex: 1.1;
+    direction: rtl;
+    max-width: 5.5em;
+  }
+  #plateDigits {
+    flex: 1;
+    direction: ltr;
+    unicode-bidi: isolate;
+    max-width: 6em;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 5px;
+  }
+  #plateLetters::placeholder, #plateDigits::placeholder {
     color: #8a8a80;
     font-size: 14px;
     font-weight: 600;
@@ -509,11 +538,15 @@
       </div>
       <button id="clearBtn" class="icon-btn plate-clear" title="مسح">✕</button>
       <div class="plate-input-col">
-        <input id="plateInput" type="text" placeholder="مثال: عبق ٣٨٤٧" autocomplete="off" />
+        <div class="plate-input-row">
+          <input id="plateLetters" type="text" maxlength="3" placeholder="عبق" autocomplete="off" aria-label="حروف اللوحة" />
+          <span class="plate-field-sep" aria-hidden="true"></span>
+          <input id="plateDigits" type="text" maxlength="4" inputmode="numeric" placeholder="3847" autocomplete="off" aria-label="أرقام اللوحة" />
+        </div>
         <div id="plateLatin" class="plate-latin"></div>
       </div>
     </div>
-    <div class="plate-hint">٣ حروف عربية + ٤ أرقام — مثال: «عبق ٣٨٤٧» أو «عين به قاف ٣ ٨ ٤ ٧»</div>
+    <div class="plate-hint">٣ حروف عربية + ٤ أرقام — الأرقام من الشمال لليمين (مثال: 3847)</div>
 
     <div class="media-actions">
       <button id="camBtn" class="media-btn" title="التقاط صورة">
@@ -634,7 +667,8 @@
     return;
   }
 
-  const input = document.getElementById('plateInput');
+  const lettersInput = document.getElementById('plateLetters');
+  const digitsInput = document.getElementById('plateDigits');
   const plateLatinEl = document.getElementById('plateLatin');
   const micBtn = document.getElementById('micBtn');
   const clearBtn = document.getElementById('clearBtn');
@@ -649,17 +683,45 @@
     'ه': 'H', 'و': 'U', 'ي': 'V', 'ى': 'V'
   };
 
+  function stripBidiMarks(str) {
+    return String(str || '').replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '');
+  }
+
+  function getPlateCombinedRaw() {
+    const letters = stripBidiMarks(normalizeArabicLetters(lettersInput.value)).toLowerCase().replace(/[^\u0621-\u064A]/g, '');
+    const digits = stripBidiMarks(normalizeDigits(digitsInput.value)).replace(/\D/g, '');
+    const query = [letters, digits].filter(Boolean).join(' ');
+    return { letters, digits, query, token: letters + digits };
+  }
+
+  function setPlateFields(parsed) {
+    lettersInput.value = parsed.letters || '';
+    digitsInput.value = parsed.digits || '';
+    updatePlateLatin();
+  }
+
+  function clearPlateFields() {
+    lettersInput.value = '';
+    digitsInput.value = '';
+    updatePlateLatin();
+  }
+
+  function getPlateStatusLabel() {
+    const { letters, digits } = getPlateCombinedRaw();
+    if (!letters && !digits) return '';
+    if (digits) return letters + ' \u2066' + digits + '\u2069';
+    return letters;
+  }
+
   // Mirrors the small Latin/Western line printed under the Arabic on a real
   // plate, so the field genuinely looks/behaves like one as you type.
   function updatePlateLatin() {
     if (!plateLatinEl) return;
-    const val = input.value || '';
-    let letters = '', digits = '';
-    for (const ch of val) {
-      if (/[0-9]/.test(ch)) digits += ch;
-      else if (plateLatinMap[ch]) letters += plateLatinMap[ch];
-    }
-    plateLatinEl.textContent = letters ? (letters.split('').join(' ') + (digits ? '   ' + digits : '')) : digits;
+    const { letters, digits } = getPlateCombinedRaw();
+    const lettersLatin = letters.split('').map(ch => plateLatinMap[ch] || '').filter(Boolean).join(' ');
+    plateLatinEl.textContent = lettersLatin
+      ? (lettersLatin + (digits ? '   ' + digits : ''))
+      : digits;
   }
 
   // Normalization helpers (normalizeText, normalizeDigits, normalizeArabicLetters,
@@ -717,17 +779,25 @@
   ]);
 
   const numberWords = {
-    'صفر': '0', 'صفره': '0', 'زيرو': '0',
-    'واحد': '1', 'وحدة': '1', 'واحده': '1', 'وحده': '1',
-    'اثنين': '2', 'اتنين': '2', 'إثنين': '2', 'اثنان': '2', 'ثنين': '2',
-    'ثلاثة': '3', 'ثلاث': '3', 'تلاته': '3', 'ثلاثه': '3', 'تلاتة': '3', 'تلات': '3',
-    'اربعة': '4', 'اربع': '4', 'أربعة': '4', 'أربع': '4', 'اربعه': '4', 'أربعه': '4',
-    'خمسة': '5', 'خمس': '5', 'خمسه': '5',
-    'ستة': '6', 'ست': '6', 'سته': '6',
-    'سبعة': '7', 'سبع': '7', 'سبعه': '7',
-    'ثمانية': '8', 'ثمان': '8', 'ثمانيه': '8', 'تمانية': '8', 'تمانيه': '8', 'تمان': '8',
-    'تسعة': '9', 'تسع': '9', 'تسعه': '9'
+    'صفر': '0', 'صفره': '0', 'زيرو': '0', 'zero': '0',
+    'واحد': '1', 'وحدة': '1', 'واحده': '1', 'وحده': '1', 'one': '1',
+    'اثنين': '2', 'اتنين': '2', 'إثنين': '2', 'اثنان': '2', 'ثنين': '2', 'two': '2',
+    'ثلاثة': '3', 'ثلاث': '3', 'تلاته': '3', 'ثلاثه': '3', 'تلاتة': '3', 'تلات': '3', 'three': '3',
+    'اربعة': '4', 'اربع': '4', 'أربعة': '4', 'أربع': '4', 'اربعه': '4', 'أربعه': '4', 'four': '4',
+    'خمسة': '5', 'خمس': '5', 'خمسه': '5', 'five': '5',
+    'ستة': '6', 'ست': '6', 'سته': '6', 'six': '6',
+    'سبعة': '7', 'سبع': '7', 'سبعه': '7', 'seven': '7',
+    'ثمانية': '8', 'ثمان': '8', 'ثمانيه': '8', 'تمانية': '8', 'تمانيه': '8', 'تمان': '8', 'eight': '8',
+    'تسعة': '9', 'تسع': '9', 'تسعه': '9', 'nine': '9'
   };
+
+  function resolveSpokenDigit(word) {
+    const wNorm = normalizeArabicLetters(stripTashkeel(word)).toLowerCase();
+    if (!wNorm) return null;
+    if (/^\d$/.test(wNorm)) return wNorm;
+    if (numberWords[wNorm] !== undefined) return numberWords[wNorm];
+    return null;
+  }
 
   function isSpeechFiller(word) {
     if (!word) return true;
@@ -778,7 +848,7 @@
   }
 
   function parseSaudiPlateSpeech(text) {
-    text = normalizeDigits(text);
+    text = stripBidiMarks(normalizeDigits(text));
     text = stripTashkeel(text);
     const words = text.trim().split(/\s+/).filter(Boolean);
     let letters = '';
@@ -790,18 +860,28 @@
       const wNorm = normalizeArabicLetters(w.trim()).toLowerCase();
       if (!wNorm || isSpeechFiller(wNorm)) continue;
 
+      if (letters.length >= 3) digitsPhase = true;
+
       const glued = wNorm.match(/^([\u0621-\u064A]+)(\d+)$/);
       if (glued) {
         if (letters.length < 3) letters += glued[1].slice(0, 3 - letters.length);
         digitsPhase = true;
-        digits += glued[2];
+        digits += glued[2].slice(0, 4 - digits.length);
         continue;
       }
 
       if (/^\d+$/.test(wNorm)) {
         digitsPhase = true;
-        digits += wNorm;
+        digits += wNorm.slice(0, 4 - digits.length);
         continue;
+      }
+
+      if (digitsPhase || letters.length >= 3) {
+        const asDigit = resolveSpokenDigit(wNorm);
+        if (asDigit !== null && digits.length < 4) {
+          digits += asDigit;
+          continue;
+        }
       }
 
       if (!digitsPhase && letters.length < 3) {
@@ -821,7 +901,7 @@
 
       if (numberWords[wNorm] !== undefined) {
         digitsPhase = true;
-        digits += numberWords[wNorm];
+        if (digits.length < 4) digits += numberWords[wNorm];
         continue;
       }
 
@@ -884,7 +964,7 @@
   }
 
   function renderEmpty() {
-    resultsEl.innerHTML = '<div class="empty-state">اكتب رقم اللوحة يدويًا، أو اضغط 🎤 وقول ٣ حروف ثم ٤ أرقام<br>مثال: «عبق» أو «عين به قاف» ثم «٣٨٤٧» من الشمال لليمين</div>';
+    resultsEl.innerHTML = '<div class="empty-state">اكتب أو قول ٣ حروف ثم ٤ أرقام — الأرقام من الشمال لليمين<br>مثال: «رمق» ثم «6543» أو «ستة خمسة أربعة ثلاثة»</div>';
   }
 
   function renderResults(query) {
@@ -988,21 +1068,28 @@
   // vibrateFound() and escapeHtml() are provided globally by db.js.
 
   let debounceTimer = null;
-  input.addEventListener('input', () => {
-    updatePlateLatin();
+  function handlePlateFieldInput() {
     clearTimeout(debounceTimer);
-    const val = input.value;
-    if (!val.trim()) { renderEmpty(); return; }
-    debounceTimer = setTimeout(() => renderResults(val), 150);
-  });
+    const rawCombined = (lettersInput.value + ' ' + digitsInput.value).trim();
+    if (!rawCombined) {
+      clearPlateFields();
+      renderEmpty();
+      return;
+    }
+    const parsed = parseSaudiPlateSpeech(rawCombined);
+    setPlateFields(parsed);
+    debounceTimer = setTimeout(() => renderResults(rawCombined), 150);
+  }
+
+  lettersInput.addEventListener('input', handlePlateFieldInput);
+  digitsInput.addEventListener('input', handlePlateFieldInput);
 
   clearBtn.addEventListener('click', () => {
-    input.value = '';
-    updatePlateLatin();
+    clearPlateFields();
     renderEmpty();
     statusLine.textContent = '';
     statusLine.className = 'status-line';
-    input.focus();
+    lettersInput.focus();
   });
 
   // ---- Voice recognition ----
@@ -1036,7 +1123,7 @@
       listening = true;
       finalTranscriptBuffer = '';
       micBtn.classList.add('listening');
-      statusLine.textContent = '🎙️ قول ٣ حروف ثم ٤ أرقام (٦ ثواني)...';
+      statusLine.textContent = '🎙️ قول ٣ حروف ثم ٤ أرقام بالترتيب (٦ ثواني)...';
       statusLine.className = 'status-line listening-text';
       clearTimeout(micTimeout);
       micTimeout = setTimeout(() => {
@@ -1067,9 +1154,7 @@
       }
       const liveRaw = (finalTranscriptBuffer + ' ' + interimText).trim();
       const liveParsed = parseSaudiPlateSpeech(liveRaw);
-      const liveDisplay = formatPlateSpeechDisplay(liveParsed);
-      input.value = liveDisplay || liveRaw;
-      updatePlateLatin();
+      setPlateFields(liveParsed);
     };
 
     // Runs once the 5-second window ends (recognition.stop() fires this
@@ -1081,32 +1166,31 @@
       if (!transcript) {
         statusLine.textContent = '⚠️ مسمعتش حاجة — قول ٣ حروف ثم ٤ أرقام';
         statusLine.className = 'status-line listening-text';
-        input.value = '';
-        updatePlateLatin();
+        clearPlateFields();
         return;
       }
       const parsed = parseSaudiPlateSpeech(transcript);
       if (parsed.letters.length < 3) {
         statusLine.textContent = '⚠️ محتاج ٣ حروف — قول الحروف الأول (مثال: عبق أو عين باء قاف)';
         statusLine.className = 'status-line listening-text';
-        input.value = formatPlateSpeechDisplay(parsed) || transcript;
-        updatePlateLatin();
+        setPlateFields(parsed);
         return;
       }
-      const token = parsed.token;
-      const display = formatPlateSpeechDisplay(parsed);
-      input.value = display;
-      updatePlateLatin();
+      setPlateFields(parsed);
+      const display = getPlateStatusLabel();
       const found = renderResults(transcript);
       if (found) {
         statusLine.textContent = '✅ سمعت: ' + display;
         statusLine.className = 'status-line ok-text';
         continuousMode = false;
+      } else if (parsed.digits.length === 4 && renderResultsByDigitsOnly(parsed.digits)) {
+        statusLine.textContent = '🔢 سمعت: ' + display + ' — مفيش تطابق تام، دي نتائج الأرقام بس';
+        statusLine.className = 'status-line listening-text';
+        continuousMode = false;
       } else {
         statusLine.textContent = '🔁 سمعت: ' + display + ' — مفيش نتيجة، اتكلم تاني';
         statusLine.className = 'status-line listening-text';
-        input.value = '';
-        updatePlateLatin();
+        clearPlateFields();
       }
     }
 
@@ -1424,8 +1508,7 @@
         return;
       }
 
-      input.value = text;
-      updatePlateLatin();
+      setPlateFields(parseSaudiPlateSpeech(text));
       const found = renderResults(text);
       if (found) {
         statusLine.textContent = '✅ قريت: ' + text.replace(/\s+/g, ' ');
