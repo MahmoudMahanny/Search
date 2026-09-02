@@ -272,6 +272,21 @@
     background: var(--accent);
     border-color: var(--accent);
     color: #1a1a1a;
+    position: relative;
+    overflow: visible;
+  }
+  /* Subtle ready dot — visible to you, easy to miss for normal users */
+  .media-btn-primary.engine-ready::after {
+    content: '';
+    position: absolute;
+    top: 5px;
+    inset-inline-end: 7px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #4caf7d;
+    box-shadow: 0 0 0 2px rgba(76, 175, 125, 0.22);
+    pointer-events: none;
   }
   .media-btn-primary .media-label { color: #1a1a1a; }
   .media-btn-primary.listening {
@@ -1083,6 +1098,12 @@
 
   updateCountDisplay();
 
+  function markAppReady() {
+    document.body.dataset.appReady = '1';
+    if (micBtn) micBtn.classList.add('engine-ready');
+  }
+  markAppReady();
+
   // Pick the STT alternative most likely to be a valid Saudi plate.
   function scorePlateTranscript(text) {
     return scorePlateCandidate(parseSaudiPlateSpeech(text));
@@ -1218,45 +1239,31 @@
 
   let onMatchPopupClosed = null;
 
-  // ---- Voice: on-device STT when ready (silent preload) + browser speech fallback ----
-  const STT_MODEL_ID = 'Xenova/whisper-small';
-  const STT_CHUNK_MS = 2800;
-  const STT_MODULE_URL = 'https://esm.sh/@xenova/transformers@2.17.2';
-  const LISTENING_MSG = '🎙️ المايك مفتوح — قول أي لوحة في أي وقت';
+  // ---- Voice recognition (always-on background listening) ----
+  // Mic stays open until the user turns it off. Speak a full plate anytime;
+  // on exact match we search + alert, then keep listening for the next plate.
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const voiceSupported = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
-
-  let sttPipeline = null;
-  let sttLoadPromise = null;
-  let sttEngineReady = false;
-  let sttEngineDisabled = false;
   let recognition = null;
   let listening = false;
-  let usingOnDeviceStt = false;
+  let micPermissionGranted = false;
   let backgroundListening = false;
   let restartTimer = null;
   let idleResetTimer = null;
-  let recordCycleTimer = null;
   let softRestarting = false;
   let finalTranscriptBuffer = '';
-  let transcriptRolling = '';
   let lastSearchedToken = '';
   let pauseListeningForAlarm = false;
-  let micStream = null;
-  let mediaRecorder = null;
-  let transcribeChain = Promise.resolve();
-  let sttFailCount = 0;
   const micLabel = document.getElementById('micLabel');
 
   function setMicUi(active) {
     if (active) {
       micBtn.classList.add('listening');
       micLabel.textContent = 'مفتوح';
-      micBtn.title = 'إيقاف الاستماع';
+      micBtn.title = 'إيقاف الاستماع المستمر';
     } else {
       micBtn.classList.remove('listening');
       micLabel.textContent = 'مايك';
-      micBtn.title = 'بدء الاستماع';
+      micBtn.title = 'تفعيل الاستماع المستمر';
     }
   }
 
@@ -1265,249 +1272,98 @@
     statusLine.className = 'status-line' + (kind ? ' ' + kind : '');
   }
 
-  function resetVoiceBuffer() {
-    finalTranscriptBuffer = '';
-    transcriptRolling = '';
-    lastSearchedToken = '';
-  }
-
-  function handleVoicePlate(parsed, rawText) {
-    if (parsed.letters.length !== 3 || parsed.digits.length !== 4) return false;
-    if (parsed.token === lastSearchedToken) return false;
-    lastSearchedToken = parsed.token;
-
-    setPlateFields(parsed);
-    const display = formatPlateSpeechDisplay(parsed);
-    const found = renderResults(rawText || parsed.token);
-
-    if (found) {
-      setListeningStatus('✅ تم العثور على: ' + display, 'ok-text');
-      pauseListeningForAlarm = true;
-      stopCapture();
-      clearTimeout(restartTimer);
-      restartTimer = setTimeout(() => {
-        pauseListeningForAlarm = false;
-        softRestarting = false;
-        resetVoiceBuffer();
-        clearPlateFields();
-        if (backgroundListening) {
-          setListeningStatus(LISTENING_MSG, 'listening-text');
-          startCapture();
-        }
-      }, 5200);
-    } else {
-      clearPlateFields();
-      resetVoiceBuffer();
-    }
-    return true;
-  }
-
-  function applyTranscript(text) {
-    if (!text || !String(text).trim()) return;
-    const chunk = String(text).trim();
-    transcriptRolling = (transcriptRolling + ' ' + chunk).trim().slice(-600);
-    finalTranscriptBuffer = transcriptRolling;
-    const best = pickBestTranscript([transcriptRolling, chunk]);
-    if (best.text) finalTranscriptBuffer = best.text;
-    setPlateFields(best.parsed);
-    clearTimeout(idleResetTimer);
-    if (handleVoicePlate(best.parsed, best.text)) return;
-    idleResetTimer = setTimeout(() => {
-      if (pauseListeningForAlarm || !backgroundListening) return;
-      const live = parseSaudiPlateSpeech(finalTranscriptBuffer);
-      if (live.letters.length === 3 && live.digits.length === 4) {
-        handleVoicePlate(live, finalTranscriptBuffer);
-      } else {
-        resetVoiceBuffer();
-        clearPlateFields();
-      }
-    }, 1800);
-  }
-
-  function disableOnDeviceStt() {
-    sttEngineDisabled = true;
-    sttEngineReady = false;
-    usingOnDeviceStt = false;
-  }
-
-  async function preloadSttEngine() {
-    if (sttEngineDisabled || sttEngineReady || sttLoadPromise) return sttLoadPromise;
-    sttLoadPromise = (async () => {
-      try {
-        const { pipeline, env } = await import(STT_MODULE_URL);
-        if (env && env.backends && env.backends.onnx && env.backends.onnx.wasm) {
-          env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/';
-        }
-        if (env) {
-          env.allowLocalModels = false;
-          env.useBrowserCache = true;
-        }
-        sttPipeline = await pipeline('automatic-speech-recognition', STT_MODEL_ID);
-        sttEngineReady = true;
-        sttFailCount = 0;
-      } catch (e) {
-        disableOnDeviceStt();
-      }
-    })();
-    return sttLoadPromise;
-  }
-
-  async function blobToMono16k(blob) {
-    const arrayBuffer = await blob.arrayBuffer();
-    const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
-    let decoded;
-    try {
-      decoded = await decodeCtx.decodeAudioData(arrayBuffer.slice(0));
-    } finally {
-      try { await decodeCtx.close(); } catch (e) {}
-    }
-    const sampleRate = decoded.sampleRate;
-    const length = decoded.length;
-    const mono = new Float32Array(length);
-    if (decoded.numberOfChannels === 1) {
-      mono.set(decoded.getChannelData(0));
-    } else {
-      for (let c = 0; c < decoded.numberOfChannels; c++) {
-        const ch = decoded.getChannelData(c);
-        for (let i = 0; i < length; i++) mono[i] += ch[i] / decoded.numberOfChannels;
-      }
-    }
-    if (sampleRate === 16000) return mono;
-    const outLen = Math.max(1, Math.round(length * 16000 / sampleRate));
-    const out = new Float32Array(outLen);
-    for (let i = 0; i < outLen; i++) {
-      const src = i * sampleRate / 16000;
-      const idx = Math.min(length - 1, Math.floor(src));
-      out[i] = mono[idx];
-    }
-    return out;
-  }
-
-  function pickRecorderMime() {
-    const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
-    for (const t of types) {
-      if (MediaRecorder.isTypeSupported(t)) return t;
-    }
-    return '';
-  }
-
-  function clearRecordCycleTimer() {
-    clearTimeout(recordCycleTimer);
-    recordCycleTimer = null;
-  }
-
-  function stopCapture() {
-    softRestarting = true;
-    clearRecordCycleTimer();
-    try {
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
-    } catch (e) {}
-    mediaRecorder = null;
-    if (micStream) {
-      try { micStream.getTracks().forEach(t => t.stop()); } catch (e) {}
-      micStream = null;
-    }
-    listening = false;
-    usingOnDeviceStt = false;
-  }
-
-  async function switchToWebSpeechSilently() {
-    disableOnDeviceStt();
-    stopCapture();
-    softRestarting = false;
-    if (!backgroundListening || pauseListeningForAlarm) return;
-    try {
-      if (!micStream) {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      }
-    } catch (e) { return; }
-    try { micStream.getTracks().forEach(t => t.stop()); micStream = null; } catch (e) {}
-    startWebSpeechCapture();
-  }
-
-  async function processSttChunk(blob) {
-    if (!backgroundListening || pauseListeningForAlarm || !blob || blob.size < 800) return;
-    if (!sttEngineReady || !sttPipeline || sttEngineDisabled) return;
-    try {
-      const audio = await blobToMono16k(blob);
-      if (!audio || audio.length < 1600) return;
-      const result = await sttPipeline(audio, {
-        language: 'arabic',
-        task: 'transcribe',
-        sampling_rate: 16000
-      });
-      const text = (result && result.text) ? result.text.trim() : '';
-      if (text) applyTranscript(text);
-      sttFailCount = 0;
-    } catch (e) {
-      sttFailCount++;
-      if (sttFailCount >= 2 && backgroundListening) {
-        await switchToWebSpeechSilently();
-      }
-    }
-  }
-
-  function queueSttChunk(blob) {
-    transcribeChain = transcribeChain.then(() => processSttChunk(blob)).catch(() => {});
-  }
-
-  function beginRecordingCycle() {
-    if (!backgroundListening || pauseListeningForAlarm || !micStream || !sttEngineReady || sttEngineDisabled) return;
-    clearRecordCycleTimer();
-    const mimeType = pickRecorderMime();
-    const chunks = [];
-    const rec = mimeType ? new MediaRecorder(micStream, { mimeType }) : new MediaRecorder(micStream);
-    mediaRecorder = rec;
-    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-    rec.onstop = () => {
-      if (!backgroundListening || pauseListeningForAlarm || sttEngineDisabled) return;
-      const blob = new Blob(chunks, { type: rec.mimeType || mimeType || 'audio/webm' });
-      queueSttChunk(blob);
-      beginRecordingCycle();
-    };
-    rec.onerror = () => { switchToWebSpeechSilently(); };
-    try {
-      rec.start();
-      recordCycleTimer = setTimeout(() => {
-        if (rec.state === 'recording') {
-          try { rec.stop(); } catch (e) {}
-        }
-      }, STT_CHUNK_MS);
-    } catch (e) {
-      switchToWebSpeechSilently();
-    }
-  }
-
-  async function startOnDeviceCapture() {
-    micStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-    });
-    usingOnDeviceStt = true;
-    listening = true;
-    setMicUi(true);
-    setListeningStatus(LISTENING_MSG, 'listening-text');
-    beginRecordingCycle();
-  }
-
-  function setupWebSpeechFallback() {
-    if (!SpeechRecognition) return false;
+  if (SpeechRecognition) {
     recognition = new SpeechRecognition();
     recognition.lang = 'ar-SA';
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 10;
 
+    function collectTranscriptCandidates(event, interimText, finalText) {
+      const candidates = [];
+      const combined = (finalText + ' ' + (interimText || '')).trim();
+      if (combined) candidates.push(combined);
+      if (interimText && interimText.trim()) candidates.push(interimText.trim());
+      for (let i = 0; i < event.results.length; i++) {
+        const res = event.results[i];
+        for (let j = 0; j < res.length; j++) {
+          const t = res[j].transcript;
+          if (t && t.trim()) candidates.push(t.trim());
+        }
+      }
+      return candidates;
+    }
+
+    function resetVoiceBuffer() {
+      finalTranscriptBuffer = '';
+      lastSearchedToken = '';
+    }
+
+    function softRestartRecognition() {
+      if (!backgroundListening || pauseListeningForAlarm) return;
+      softRestarting = true;
+      clearTimeout(restartTimer);
+      try { recognition.stop(); } catch (e) {}
+      restartTimer = setTimeout(() => {
+        softRestarting = false;
+        startListening();
+      }, 280);
+    }
+
+    function handleVoicePlate(parsed, rawText) {
+      if (parsed.letters.length !== 3 || parsed.digits.length !== 4) return false;
+      if (parsed.token === lastSearchedToken) return false;
+      lastSearchedToken = parsed.token;
+
+      setPlateFields(parsed);
+      const display = formatPlateSpeechDisplay(parsed);
+      const found = renderResults(rawText || parsed.token);
+
+      if (found) {
+        setListeningStatus('✅ سمعت: ' + display + ' — المايك لسه مفتوح', 'ok-text');
+        // Pause STT while the alarm plays so it doesn't re-hear the siren.
+        pauseListeningForAlarm = true;
+        softRestarting = true;
+        try { recognition.stop(); } catch (e) {}
+        clearTimeout(restartTimer);
+        restartTimer = setTimeout(() => {
+          pauseListeningForAlarm = false;
+          softRestarting = false;
+          resetVoiceBuffer();
+          clearPlateFields();
+          if (backgroundListening) {
+            setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
+            startListening();
+          }
+        }, 5200);
+      } else {
+        setListeningStatus('🔁 سمعت: ' + display + ' — مفيش تطابق تام، قول تاني', 'listening-text');
+        clearTimeout(idleResetTimer);
+        idleResetTimer = setTimeout(() => {
+          clearPlateFields();
+          resetVoiceBuffer();
+          softRestartRecognition();
+          if (backgroundListening) {
+            setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
+          }
+        }, 1600);
+      }
+      return true;
+    }
+
     recognition.onstart = () => {
       listening = true;
-      usingOnDeviceStt = false;
       setMicUi(true);
-      setListeningStatus(LISTENING_MSG, 'listening-text');
+      if (!pauseListeningForAlarm) {
+        setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
+      }
     };
 
     recognition.onresult = (event) => {
       if (pauseListeningForAlarm) return;
-      let interimText = '';
+
       const finalParts = [];
+      let interimText = '';
       for (let i = 0; i < event.results.length; i++) {
         const res = event.results[i];
         if (res.isFinal) {
@@ -1519,85 +1375,117 @@
           interimText += res[0].transcript;
         }
       }
-      const assembled = (finalParts.join(' ') + ' ' + interimText).trim();
-      if (assembled) applyTranscript(assembled);
+
+      const assembledFinal = finalParts.join(' ').trim();
+      const candidates = collectTranscriptCandidates(event, interimText, assembledFinal);
+      const best = pickBestTranscript(candidates);
+      if (best.text) finalTranscriptBuffer = best.text;
+      setPlateFields(best.parsed);
+
+      clearTimeout(idleResetTimer);
+      if (handleVoicePlate(best.parsed, best.text)) return;
+
+      // Incomplete utterance: if speech pauses, drop the buffer so the next
+      // plate starts clean — without ever closing the mic.
+      idleResetTimer = setTimeout(() => {
+        if (pauseListeningForAlarm || !backgroundListening) return;
+        const live = parseSaudiPlateSpeech(finalTranscriptBuffer);
+        if (live.letters.length === 3 && live.digits.length === 4) {
+          handleVoicePlate(live, finalTranscriptBuffer);
+        } else {
+          resetVoiceBuffer();
+          softRestartRecognition();
+        }
+      }, 2200);
     };
 
     recognition.onerror = (event) => {
-      if (event.error === 'no-speech' || event.error === 'aborted') return;
+      if (event.error === 'no-speech' || event.error === 'aborted') {
+        // Normal while always-on — recognition will restart via onend.
+        return;
+      }
+      let msg = 'خطأ: ' + event.error;
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        msg = '⚠️ الإذن مرفوض — دوس على 🔒 بجانب العنوان وفعّل المايك';
         backgroundListening = false;
         setMicUi(false);
-        setListeningStatus('⚠️ فعّل إذن المايك من إعدادات المتصفح', '');
+      } else if (event.error === 'audio-capture') {
+        msg = '⚠️ مفيش مايك متاح على الجهاز ده';
+        backgroundListening = false;
+        setMicUi(false);
+      } else if (event.error === 'network') {
+        msg = '⚠️ خطأ شبكة — التعرف على الصوت محتاج إنترنت (هحاول تاني...)';
       }
+      setListeningStatus(msg, '');
       listening = false;
     };
 
     recognition.onend = () => {
       listening = false;
-      if (softRestarting || pauseListeningForAlarm || usingOnDeviceStt) return;
+      clearTimeout(idleResetTimer);
+
+      if (softRestarting || pauseListeningForAlarm) return;
+
       if (backgroundListening) {
+        // Browser ended the session (common after silence) — reopen immediately.
+        setMicUi(true);
         clearTimeout(restartTimer);
-        restartTimer = setTimeout(() => { startWebSpeechCapture(); }, 250);
+        restartTimer = setTimeout(() => { startListening(); }, 200);
+        return;
+      }
+
+      setMicUi(false);
+      if (!statusLine.classList.contains('ok-text')) {
+        setListeningStatus('', '');
       }
     };
-    return true;
-  }
 
-  function startWebSpeechCapture() {
-    if (!backgroundListening || pauseListeningForAlarm || !recognition) return;
-    usingOnDeviceStt = false;
-    try { recognition.start(); } catch (e) {}
-  }
-
-  async function startCapture() {
-    if (!backgroundListening || pauseListeningForAlarm) return;
-    softRestarting = false;
-    if (sttEngineReady && !sttEngineDisabled) {
+    async function startListening() {
+      if (!backgroundListening || pauseListeningForAlarm) return;
+      if (!micPermissionGranted && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          // Keep a silent track reference briefly; SpeechRecognition opens its own.
+          stream.getTracks().forEach(t => t.stop());
+          micPermissionGranted = true;
+        } catch (permErr) {
+          setListeningStatus(
+            '⚠️ مرفوض إذن المايك (' + (permErr.name || permErr.message) + ') — فعّل المايك من إعدادات الموقع',
+            ''
+          );
+          backgroundListening = false;
+          setMicUi(false);
+          return;
+        }
+      }
       try {
-        await startOnDeviceCapture();
-        return;
+        recognition.start();
       } catch (e) {
-        disableOnDeviceStt();
+        // already started — ignore
       }
     }
-    if (recognition) {
-      startWebSpeechCapture();
-    } else {
+
+    function enableBackgroundListening() {
+      backgroundListening = true;
+      pauseListeningForAlarm = false;
+      softRestarting = false;
+      resetVoiceBuffer();
+      setMicUi(true);
+      setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
+      startListening();
+    }
+
+    function disableBackgroundListening() {
       backgroundListening = false;
-      setMicUi(false);
-      setListeningStatus('البحث الصوتي غير متاح على هذا الجهاز', '');
-    }
-  }
-
-  function disableBackgroundListening() {
-    backgroundListening = false;
-    pauseListeningForAlarm = false;
-    softRestarting = false;
-    clearTimeout(restartTimer);
-    clearTimeout(idleResetTimer);
-    resetVoiceBuffer();
-    stopCapture();
-    if (recognition) {
+      pauseListeningForAlarm = false;
+      softRestarting = false;
+      clearTimeout(restartTimer);
+      clearTimeout(idleResetTimer);
+      resetVoiceBuffer();
       try { recognition.stop(); } catch (e) {}
+      setMicUi(false);
+      setListeningStatus('المايك مقفول', '');
     }
-    setMicUi(false);
-    setListeningStatus('المايك مقفول', '');
-  }
-
-  async function enableBackgroundListening() {
-    backgroundListening = true;
-    pauseListeningForAlarm = false;
-    softRestarting = false;
-    resetVoiceBuffer();
-    setMicUi(true);
-    setListeningStatus(LISTENING_MSG, 'listening-text');
-    await startCapture();
-  }
-
-  if (voiceSupported) {
-    setupWebSpeechFallback();
-    preloadSttEngine();
 
     micBtn.addEventListener('click', () => {
       if (backgroundListening) disableBackgroundListening();
@@ -1610,15 +1498,16 @@
         softRestarting = false;
         resetVoiceBuffer();
         clearTimeout(restartTimer);
-        setListeningStatus(LISTENING_MSG, 'listening-text');
-        startCapture();
+        setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
+        startListening();
       }
     };
   } else {
     micBtn.disabled = true;
     micBtn.style.opacity = '0.4';
-    statusLine.textContent = 'البحث الصوتي غير متاح — استخدم الكتابة';
+    statusLine.textContent = 'البحث الصوتي مش مدعوم في المتصفح ده — استخدم الكتابة';
   }
+
 
   // ---- Image (OCR) search with interactive crop ----
   const camBtn = document.getElementById('camBtn');
