@@ -592,7 +592,7 @@
       <button id="uploadBtn" class="media-btn" title="رفع صورة">
         <span class="media-icon">🖼️</span><span class="media-label">صورة</span>
       </button>
-      <button id="micBtn" class="media-btn media-btn-primary" title="استماع مستمر">
+      <button id="micBtn" class="media-btn media-btn-primary" title="تفعيل المايك">
         <span class="media-icon">🎤</span><span class="media-label" id="micLabel">مايك</span>
       </button>
       <input id="camInput" type="file" accept="image/*" capture="environment" style="display:none" />
@@ -1083,12 +1083,6 @@
 
   updateCountDisplay();
 
-  function markAppReady() {
-    document.body.dataset.appReady = '1';
-    if (micBtn) micBtn.classList.add('engine-ready');
-  }
-  markAppReady();
-
   // Pick the STT alternative most likely to be a valid Saudi plate.
   function scorePlateTranscript(text) {
     return scorePlateCandidate(parseSaudiPlateSpeech(text));
@@ -1224,31 +1218,35 @@
 
   let onMatchPopupClosed = null;
 
-  // ---- Voice recognition (always-on background listening) ----
-  // Mic stays open until the user turns it off. Speak a full plate anytime;
-  // on exact match we search + alert, then keep listening for the next plate.
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  // ---- Voice recognition ----
+  // Mic stays open until the user turns it off. On Android we use Google Speech
+  // (native); in the browser we fall back to Web Speech API.
+  const WebSpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const isNativeAndroid = window.Capacitor?.getPlatform?.() === 'android';
   let recognition = null;
-  let listening = false;
+  let nativeSpeech = null;
+  let micOpen = false;
   let micPermissionGranted = false;
-  let backgroundListening = false;
   let restartTimer = null;
   let idleResetTimer = null;
   let softRestarting = false;
   let finalTranscriptBuffer = '';
   let lastSearchedToken = '';
   let pauseListeningForAlarm = false;
+  let voiceStopEngine = () => {};
+  let voiceStartEngine = () => {};
   const micLabel = document.getElementById('micLabel');
+  const MIC_OPEN_HINT = '🎙️ المايك مفتوح — قول أي لوحة في أي وقت';
 
   function setMicUi(active) {
     if (active) {
       micBtn.classList.add('listening');
       micLabel.textContent = 'مفتوح';
-      micBtn.title = 'إيقاف الاستماع المستمر';
+      micBtn.title = 'إيقاف الاستماع';
     } else {
       micBtn.classList.remove('listening');
       micLabel.textContent = 'مايك';
-      micBtn.title = 'تفعيل الاستماع المستمر';
+      micBtn.title = 'تفعيل الاستماع';
     }
   }
 
@@ -1257,8 +1255,197 @@
     statusLine.className = 'status-line' + (kind ? ' ' + kind : '');
   }
 
-  if (SpeechRecognition) {
-    recognition = new SpeechRecognition();
+  function resetVoiceBuffer() {
+    finalTranscriptBuffer = '';
+    lastSearchedToken = '';
+  }
+
+  function scheduleVoiceRestart(delayMs) {
+    if (!micOpen || pauseListeningForAlarm) return;
+    softRestarting = true;
+    clearTimeout(restartTimer);
+    voiceStopEngine();
+    restartTimer = setTimeout(() => {
+      softRestarting = false;
+      voiceStartEngine();
+    }, delayMs || 280);
+  }
+
+  function handleVoicePlate(parsed, rawText) {
+    if (parsed.letters.length !== 3 || parsed.digits.length !== 4) return false;
+    if (parsed.token === lastSearchedToken) return false;
+    lastSearchedToken = parsed.token;
+
+    setPlateFields(parsed);
+    const display = formatPlateSpeechDisplay(parsed);
+    const found = renderResults(rawText || parsed.token);
+
+    if (found) {
+      setListeningStatus('✅ سمعت: ' + display + ' — المايك لسه مفتوح', 'ok-text');
+      pauseListeningForAlarm = true;
+      softRestarting = true;
+      voiceStopEngine();
+      clearTimeout(restartTimer);
+      restartTimer = setTimeout(() => {
+        pauseListeningForAlarm = false;
+        softRestarting = false;
+        resetVoiceBuffer();
+        clearPlateFields();
+        if (micOpen) {
+          setListeningStatus(MIC_OPEN_HINT, 'listening-text');
+          voiceStartEngine();
+        }
+      }, 5200);
+    } else {
+      setListeningStatus('🔁 سمعت: ' + display + ' — مفيش تطابق تام، قول تاني', 'listening-text');
+      clearTimeout(idleResetTimer);
+      idleResetTimer = setTimeout(() => {
+        clearPlateFields();
+        resetVoiceBuffer();
+        scheduleVoiceRestart(280);
+        if (micOpen) setListeningStatus(MIC_OPEN_HINT, 'listening-text');
+      }, 1600);
+    }
+    return true;
+  }
+
+  function processTranscriptCandidates(candidates) {
+    if (pauseListeningForAlarm) return;
+    const best = pickBestTranscript(candidates.filter(Boolean));
+    if (best.text) finalTranscriptBuffer = best.text;
+    setPlateFields(best.parsed);
+
+    clearTimeout(idleResetTimer);
+    if (handleVoicePlate(best.parsed, best.text)) return;
+
+    idleResetTimer = setTimeout(() => {
+      if (pauseListeningForAlarm || !micOpen) return;
+      const live = parseSaudiPlateSpeech(finalTranscriptBuffer);
+      if (live.letters.length === 3 && live.digits.length === 4) {
+        handleVoicePlate(live, finalTranscriptBuffer);
+      } else {
+        resetVoiceBuffer();
+        scheduleVoiceRestart(280);
+      }
+    }, 2200);
+  }
+
+  function disableMicSession() {
+    micOpen = false;
+    pauseListeningForAlarm = false;
+    softRestarting = false;
+    clearTimeout(restartTimer);
+    clearTimeout(idleResetTimer);
+    resetVoiceBuffer();
+    voiceStopEngine();
+    setMicUi(false);
+    setListeningStatus('المايك مقفول', '');
+  }
+
+  let enableMicSession = function enableMicSessionImpl() {
+    micOpen = true;
+    pauseListeningForAlarm = false;
+    softRestarting = false;
+    resetVoiceBuffer();
+    setMicUi(true);
+    setListeningStatus(MIC_OPEN_HINT, 'listening-text');
+    voiceStartEngine();
+  };
+
+  micBtn.addEventListener('click', () => {
+    if (micOpen) disableMicSession();
+    else enableMicSession();
+  });
+
+  onMatchPopupClosed = () => {
+    if (micOpen && pauseListeningForAlarm) {
+      pauseListeningForAlarm = false;
+      softRestarting = false;
+      resetVoiceBuffer();
+      clearTimeout(restartTimer);
+      setListeningStatus(MIC_OPEN_HINT, 'listening-text');
+      voiceStartEngine();
+    }
+  };
+
+  if (isNativeAndroid && window.Capacitor?.registerPlugin) {
+    nativeSpeech = window.Capacitor.registerPlugin('SpeechRecognition');
+    let nativeListenersReady = false;
+
+    async function ensureNativeListeners() {
+      if (nativeListenersReady) return;
+      await nativeSpeech.addListener('partialResults', (event) => {
+        processTranscriptCandidates(event.matches || []);
+      });
+      await nativeSpeech.addListener('segmentResults', (event) => {
+        processTranscriptCandidates(event.matches || []);
+      });
+      await nativeSpeech.addListener('listeningState', (event) => {
+        if (event.status === 'started') {
+          setMicUi(true);
+          if (!pauseListeningForAlarm) setListeningStatus(MIC_OPEN_HINT, 'listening-text');
+        } else if (event.status === 'stopped' && micOpen && !pauseListeningForAlarm && !softRestarting) {
+          scheduleVoiceRestart(320);
+        }
+      });
+      await nativeSpeech.addListener('endOfSegmentedSession', () => {
+        if (micOpen && !pauseListeningForAlarm && !softRestarting) {
+          scheduleVoiceRestart(320);
+        }
+      });
+      nativeListenersReady = true;
+    }
+
+    voiceStopEngine = () => {
+      nativeSpeech.stop().catch(() => {});
+    };
+
+    voiceStartEngine = async () => {
+      if (!micOpen || pauseListeningForAlarm) return;
+      try {
+        const avail = await nativeSpeech.available();
+        if (!avail.available) {
+          setListeningStatus('⚠️ التعرف على الصوت غير متاح على هذا الجهاز', '');
+          micOpen = false;
+          setMicUi(false);
+          return;
+        }
+        await nativeSpeech.start({
+          language: 'ar-SA',
+          maxResults: 5,
+          partialResults: true,
+          popup: false,
+          allowForSilence: 2800
+        });
+        micPermissionGranted = true;
+      } catch (err) {
+        if (!micOpen) return;
+        const msg = String(err && err.message ? err.message : err);
+        if (/permission|denied|missing/i.test(msg)) {
+          setListeningStatus('⚠️ فعّل إذن المايك من إعدادات التطبيق', '');
+          micOpen = false;
+          setMicUi(false);
+          return;
+        }
+        scheduleVoiceRestart(600);
+      }
+    };
+
+    enableMicSession = async () => {
+      try {
+        const perm = await nativeSpeech.requestPermissions();
+        if (perm.speechRecognition !== 'granted') {
+          setListeningStatus('⚠️ محتاج إذن المايك — فعّله من إعدادات التطبيق', '');
+          return;
+        }
+        await ensureNativeListeners();
+        enableMicSessionImpl();
+      } catch (err) {
+        setListeningStatus('⚠️ تعذر تفعيل المايك: ' + (err.message || err), '');
+      }
+    };
+  } else if (WebSpeechRecognition) {
+    recognition = new WebSpeechRecognition();
     recognition.lang = 'ar-SA';
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -1279,74 +1466,22 @@
       return candidates;
     }
 
-    function resetVoiceBuffer() {
-      finalTranscriptBuffer = '';
-      lastSearchedToken = '';
-    }
+    voiceStopEngine = () => {
+      try { recognition.stop(); } catch (e) {}
+    };
+
+    voiceStartEngine = () => { startWebListening(); };
 
     function softRestartRecognition() {
-      if (!backgroundListening || pauseListeningForAlarm) return;
-      softRestarting = true;
-      clearTimeout(restartTimer);
-      try { recognition.stop(); } catch (e) {}
-      restartTimer = setTimeout(() => {
-        softRestarting = false;
-        startListening();
-      }, 280);
-    }
-
-    function handleVoicePlate(parsed, rawText) {
-      if (parsed.letters.length !== 3 || parsed.digits.length !== 4) return false;
-      if (parsed.token === lastSearchedToken) return false;
-      lastSearchedToken = parsed.token;
-
-      setPlateFields(parsed);
-      const display = formatPlateSpeechDisplay(parsed);
-      const found = renderResults(rawText || parsed.token);
-
-      if (found) {
-        setListeningStatus('✅ سمعت: ' + display + ' — المايك لسه مفتوح', 'ok-text');
-        // Pause STT while the alarm plays so it doesn't re-hear the siren.
-        pauseListeningForAlarm = true;
-        softRestarting = true;
-        try { recognition.stop(); } catch (e) {}
-        clearTimeout(restartTimer);
-        restartTimer = setTimeout(() => {
-          pauseListeningForAlarm = false;
-          softRestarting = false;
-          resetVoiceBuffer();
-          clearPlateFields();
-          if (backgroundListening) {
-            setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
-            startListening();
-          }
-        }, 5200);
-      } else {
-        setListeningStatus('🔁 سمعت: ' + display + ' — مفيش تطابق تام، قول تاني', 'listening-text');
-        clearTimeout(idleResetTimer);
-        idleResetTimer = setTimeout(() => {
-          clearPlateFields();
-          resetVoiceBuffer();
-          softRestartRecognition();
-          if (backgroundListening) {
-            setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
-          }
-        }, 1600);
-      }
-      return true;
+      scheduleVoiceRestart(280);
     }
 
     recognition.onstart = () => {
-      listening = true;
       setMicUi(true);
-      if (!pauseListeningForAlarm) {
-        setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
-      }
+      if (!pauseListeningForAlarm) setListeningStatus(MIC_OPEN_HINT, 'listening-text');
     };
 
     recognition.onresult = (event) => {
-      if (pauseListeningForAlarm) return;
-
       const finalParts = [];
       let interimText = '';
       for (let i = 0; i < event.results.length; i++) {
@@ -1360,77 +1495,46 @@
           interimText += res[0].transcript;
         }
       }
-
-      const assembledFinal = finalParts.join(' ').trim();
-      const candidates = collectTranscriptCandidates(event, interimText, assembledFinal);
-      const best = pickBestTranscript(candidates);
-      if (best.text) finalTranscriptBuffer = best.text;
-      setPlateFields(best.parsed);
-
-      clearTimeout(idleResetTimer);
-      if (handleVoicePlate(best.parsed, best.text)) return;
-
-      // Incomplete utterance: if speech pauses, drop the buffer so the next
-      // plate starts clean — without ever closing the mic.
-      idleResetTimer = setTimeout(() => {
-        if (pauseListeningForAlarm || !backgroundListening) return;
-        const live = parseSaudiPlateSpeech(finalTranscriptBuffer);
-        if (live.letters.length === 3 && live.digits.length === 4) {
-          handleVoicePlate(live, finalTranscriptBuffer);
-        } else {
-          resetVoiceBuffer();
-          softRestartRecognition();
-        }
-      }, 2200);
+      processTranscriptCandidates(
+        collectTranscriptCandidates(event, interimText, finalParts.join(' ').trim())
+      );
     };
 
     recognition.onerror = (event) => {
-      if (event.error === 'no-speech' || event.error === 'aborted') {
-        // Normal while always-on — recognition will restart via onend.
-        return;
-      }
+      if (event.error === 'no-speech' || event.error === 'aborted') return;
       let msg = 'خطأ: ' + event.error;
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         msg = '⚠️ الإذن مرفوض — دوس على 🔒 بجانب العنوان وفعّل المايك';
-        backgroundListening = false;
+        micOpen = false;
         setMicUi(false);
       } else if (event.error === 'audio-capture') {
         msg = '⚠️ مفيش مايك متاح على الجهاز ده';
-        backgroundListening = false;
+        micOpen = false;
         setMicUi(false);
       } else if (event.error === 'network') {
         msg = '⚠️ خطأ شبكة — التعرف على الصوت محتاج إنترنت (هحاول تاني...)';
       }
       setListeningStatus(msg, '');
-      listening = false;
     };
 
     recognition.onend = () => {
-      listening = false;
       clearTimeout(idleResetTimer);
-
       if (softRestarting || pauseListeningForAlarm) return;
-
-      if (backgroundListening) {
-        // Browser ended the session (common after silence) — reopen immediately.
+      if (micOpen) {
         setMicUi(true);
         clearTimeout(restartTimer);
-        restartTimer = setTimeout(() => { startListening(); }, 200);
+        restartTimer = setTimeout(() => { startWebListening(); }, 200);
         return;
       }
-
       setMicUi(false);
-      if (!statusLine.classList.contains('ok-text')) {
-        setListeningStatus('', '');
-      }
+      if (!statusLine.classList.contains('ok-text')) setListeningStatus('', '');
     };
 
-    async function startListening() {
-      if (!backgroundListening || pauseListeningForAlarm) return;
+    async function startWebListening() {
+      if (!micOpen || pauseListeningForAlarm) return;
       if (!micPermissionGranted && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          // Keep a silent track reference briefly; SpeechRecognition opens its own.
           stream.getTracks().forEach(t => t.stop());
           micPermissionGranted = true;
         } catch (permErr) {
@@ -1438,55 +1542,15 @@
             '⚠️ مرفوض إذن المايك (' + (permErr.name || permErr.message) + ') — فعّل المايك من إعدادات الموقع',
             ''
           );
-          backgroundListening = false;
+          micOpen = false;
           setMicUi(false);
           return;
         }
       }
       try {
         recognition.start();
-      } catch (e) {
-        // already started — ignore
-      }
+      } catch (e) {}
     }
-
-    function enableBackgroundListening() {
-      backgroundListening = true;
-      pauseListeningForAlarm = false;
-      softRestarting = false;
-      resetVoiceBuffer();
-      setMicUi(true);
-      setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
-      startListening();
-    }
-
-    function disableBackgroundListening() {
-      backgroundListening = false;
-      pauseListeningForAlarm = false;
-      softRestarting = false;
-      clearTimeout(restartTimer);
-      clearTimeout(idleResetTimer);
-      resetVoiceBuffer();
-      try { recognition.stop(); } catch (e) {}
-      setMicUi(false);
-      setListeningStatus('المايك مقفول', '');
-    }
-
-    micBtn.addEventListener('click', () => {
-      if (backgroundListening) disableBackgroundListening();
-      else enableBackgroundListening();
-    });
-
-    onMatchPopupClosed = () => {
-      if (backgroundListening && pauseListeningForAlarm) {
-        pauseListeningForAlarm = false;
-        softRestarting = false;
-        resetVoiceBuffer();
-        clearTimeout(restartTimer);
-        setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
-        startListening();
-      }
-    };
   } else {
     micBtn.disabled = true;
     micBtn.style.opacity = '0.4';

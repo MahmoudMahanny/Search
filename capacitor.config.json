@@ -1,0 +1,17 @@
+{
+  "appId": "com.lammah.search",
+  "appName": "لمّاح",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "SpeechRecognition": {
+      "language": "ar-SA"
+    }
+  }
+}
