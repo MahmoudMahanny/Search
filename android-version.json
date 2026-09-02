@@ -1,6 +1,6 @@
 {
-  "versionCode": 3,
-  "versionName": "1.0.2",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v1.0.2/lammah.apk",
-  "notes": "إصلاح: إشعار التحديث لا يظهر في أول فتح — يظهر فقط لو في نسخة أحدث فعلاً"
+  "versionCode": 4,
+  "versionName": "1.0.3",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v1.0.3/lammah.apk",
+  "notes": "إصلاح المايك — Google Speech الأصلي بدل Web Speech في التطبيق"
 }

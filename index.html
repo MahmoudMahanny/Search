@@ -1247,10 +1247,33 @@
   let onMatchPopupClosed = null;
 
   // ---- Voice recognition ----
-  // Mic stays open until the user turns it off. On Android we use Google Speech
-  // (native); in the browser we fall back to Web Speech API.
+  // Mic stays open until the user turns it off. On Android APK we use Google Speech
+  // (native); desktop/mobile browsers fall back to Web Speech API.
   const WebSpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const isNativeAndroid = window.Capacitor?.getPlatform?.() === 'android';
+
+  function isCapacitorAndroidHost() {
+    try {
+      if (window.Capacitor?.getPlatform?.() === 'android') return true;
+      if (window.Capacitor?.isNativePlatform?.()) return true;
+    } catch (e) { /* ignore */ }
+    const origin = window.location.origin || '';
+    if (/^https:\/\/localhost\b/i.test(origin)) return true;
+    if (window.location.protocol === 'capacitor:') return true;
+    return false;
+  }
+
+  function waitForCapacitor(maxMs) {
+    const deadline = Date.now() + (maxMs || 2500);
+    return new Promise(resolve => {
+      (function poll() {
+        if (window.Capacitor?.registerPlugin) return resolve(window.Capacitor);
+        if (Date.now() >= deadline) return resolve(window.Capacitor || null);
+        setTimeout(poll, 40);
+      })();
+    });
+  }
+
+  let isNativeAndroid = false;
   let recognition = null;
   let nativeSpeech = null;
   let micOpen = false;
@@ -1396,6 +1419,9 @@
     }
   };
 
+  await waitForCapacitor(2500);
+  isNativeAndroid = isCapacitorAndroidHost();
+
   if (isNativeAndroid && window.Capacitor?.registerPlugin) {
     nativeSpeech = window.Capacitor.registerPlugin('SpeechRecognition');
     let nativeListenersReady = false;
@@ -1461,16 +1487,35 @@
 
     enableMicSession = async () => {
       try {
-        const perm = await nativeSpeech.requestPermissions();
+        let perm = await nativeSpeech.checkPermissions();
         if (perm.speechRecognition !== 'granted') {
-          setListeningStatus('⚠️ محتاج إذن المايك — فعّله من إعدادات التطبيق', '');
+          perm = await nativeSpeech.requestPermissions();
+        }
+        if (perm.speechRecognition !== 'granted') {
+          setListeningStatus(
+            '⚠️ محتاج إذن المايك — من إعدادات الجهاز: التطبيقات → لمّاح → الأذونات → الميكروفون',
+            ''
+          );
+          micOpen = false;
+          setMicUi(false);
           return;
         }
         await ensureNativeListeners();
         enableMicSessionImpl();
       } catch (err) {
         setListeningStatus('⚠️ تعذر تفعيل المايك: ' + (err.message || err), '');
+        micOpen = false;
+        setMicUi(false);
       }
+    };
+  } else if (/android/i.test(navigator.userAgent)) {
+    enableMicSession = async () => {
+      setListeningStatus(
+        '⚠️ على أندرويد: حمّل تطبيق لمّاح (APK) — المايك في المتصفح مش مدعوم',
+        ''
+      );
+      micOpen = false;
+      setMicUi(false);
     };
   } else if (WebSpeechRecognition) {
     recognition = new WebSpeechRecognition();
@@ -2031,7 +2076,7 @@
   }
 
   async function checkAndroidAppUpdate() {
-    if (!isNativeAndroid || !window.Capacitor?.registerPlugin) return;
+    if (!isCapacitorAndroidHost() || !window.Capacitor?.registerPlugin) return;
 
     const App = window.Capacitor.registerPlugin('App');
     const Browser = window.Capacitor.registerPlugin('Browser');
@@ -2110,7 +2155,7 @@
     }
   }
 
-  if (isNativeAndroid) {
+  if (isCapacitorAndroidHost()) {
     setTimeout(checkAndroidAppUpdate, UPDATE_CHECK_DELAY_MS);
   }
 
