@@ -729,34 +729,34 @@
 
   // ---- Saudi plate speech parsing (voice + typed) ----
   const LETTER_DEFINITIONS = [
-    ['ا', ['الف', 'ألف', 'اليف', 'ا']],
-    ['ب', ['باء', 'با', 'به', 'ب']],
-    ['ت', ['تاء', 'تا', 'ته', 'ت']],
-    ['ث', ['ثاء', 'ثا', 'ثه', 'ث']],
-    ['ج', ['جيم', 'جا', 'جه', 'ج']],
-    ['ح', ['حاء', 'حا', 'حه', 'ح']],
-    ['خ', ['خاء', 'خا', 'خه', 'خ']],
-    ['د', ['دال', 'دا', 'ده', 'د']],
-    ['ذ', ['ذال', 'ذا', 'ذه', 'ذ']],
-    ['ر', ['راء', 'را', 'ره', 'ر']],
-    ['ز', ['زاي', 'زين', 'زا', 'زه', 'ز']],
-    ['س', ['سين', 'سا', 'سه', 'س']],
-    ['ش', ['شين', 'شا', 'شه', 'ش']],
-    ['ص', ['صاد', 'صا', 'صه', 'ص']],
-    ['ض', ['ضاد', 'ضا', 'ضه', 'ض']],
-    ['ط', ['طاء', 'طا', 'طه', 'ط']],
-    ['ظ', ['ظاء', 'ظا', 'ظه', 'ظ']],
-    ['ع', ['عين', 'عا', 'عه', 'ع']],
-    ['غ', ['غين', 'غا', 'غه', 'غ']],
-    ['ف', ['فاء', 'فا', 'فه', 'ف']],
-    ['ق', ['قاف', 'قا', 'قه', 'ق']],
-    ['ك', ['كاف', 'كا', 'كه', 'ك']],
-    ['ل', ['لام', 'لا', 'له', 'ل']],
-    ['م', ['ميم', 'ما', 'مه', 'م']],
-    ['ن', ['نون', 'نا', 'نه', 'ن']],
-    ['ه', ['هاء', 'ها', 'ه']],
-    ['و', ['واو', 'وا', 'وه', 'و']],
-    ['ي', ['ياء', 'يا', 'يه', 'ي', 'ى']]
+    ['ا', ['الف', 'ألف', 'اليف', 'ا', 'alif', 'alef', 'alf']],
+    ['ب', ['باء', 'با', 'به', 'ب', 'ba', 'baa', 'be', 'bee']],
+    ['ت', ['تاء', 'تا', 'ته', 'ت', 'ta', 'taa', 'te']],
+    ['ث', ['ثاء', 'ثا', 'ثه', 'ث', 'tha', 'thaa']],
+    ['ج', ['جيم', 'جا', 'جه', 'ج', 'jeem', 'jim', 'ga']],
+    ['ح', ['حاء', 'حا', 'حه', 'ح', 'ha', 'haa', '7a']],
+    ['خ', ['خاء', 'خا', 'خه', 'خ', 'kha', 'khaa', '5a']],
+    ['د', ['دال', 'دا', 'ده', 'د', 'da', 'dal']],
+    ['ذ', ['ذال', 'ذا', 'ذه', 'ذ', 'dha', 'thal']],
+    ['ر', ['راء', 'را', 'ره', 'ر', 'ra', 'raa', 're']],
+    ['ز', ['زاي', 'زين', 'زا', 'زه', 'ز', 'za', 'zay', 'zain']],
+    ['س', ['سين', 'سا', 'سه', 'س', 'seen', 'sin', 'sa']],
+    ['ش', ['شين', 'شا', 'شه', 'ش', 'sheen', 'shin', 'sha']],
+    ['ص', ['صاد', 'صا', 'صه', 'ص', 'saad', 'sad', 'sod']],
+    ['ض', ['ضاد', 'ضا', 'ضه', 'ض', 'daad', 'dad', 'dod']],
+    ['ط', ['طاء', 'طا', 'طه', 'ط', 'taa', 'tah', '6a']],
+    ['ظ', ['ظاء', 'ظا', 'ظه', 'ظ', 'zaa', 'zah']],
+    ['ع', ['عين', 'عا', 'عه', 'ع', 'ain', 'ayn', 'ein']],
+    ['غ', ['غين', 'غا', 'غه', 'غ', 'ghain', 'ghayn', 'ghein']],
+    ['ف', ['فاء', 'فا', 'فه', 'ف', 'fa', 'faa', 'fe']],
+    ['ق', ['قاف', 'قا', 'قه', 'ق', 'qaf', 'qaaf', 'gaf', 'gaaf']],
+    ['ك', ['كاف', 'كا', 'كه', 'ك', 'kaf', 'kaaf', 'ka']],
+    ['ل', ['لام', 'لا', 'له', 'ل', 'lam', 'la', 'le']],
+    ['م', ['ميم', 'ما', 'مه', 'م', 'meem', 'miim', 'mem', 'ma']],
+    ['ن', ['نون', 'نا', 'نه', 'ن', 'noon', 'nun', 'na']],
+    ['ه', ['هاء', 'ها', 'ه', 'ha', 'haa', 'he']],
+    ['و', ['واو', 'وا', 'وه', 'و', 'waw', 'wa', 'wow']],
+    ['ي', ['ياء', 'يا', 'يه', 'ي', 'ى', 'ya', 'yaa', 'yea']]
   ];
 
   const letterNames = (function buildLetterNamesMap() {
@@ -922,7 +922,133 @@
   }
 
   function transcriptToPlateToken(text) {
-    return parseSaudiPlateSpeech(text).token;
+    return refinePlateWithDB(parseSaudiPlateSpeech(text)).token;
+  }
+
+  function lettersFromNormPlate(normPlate) {
+    return normPlate.replace(/\d/g, '');
+  }
+
+  function scorePlateCandidate(parsed) {
+    let score = 0;
+    if (parsed.letters.length === 3) score += 20;
+    else score += parsed.letters.length * 4;
+    if (parsed.digits.length === 4) score += 20;
+    else score += parsed.digits.length * 4;
+    if (parsed.token && normDB.some(r => r.normPlate === parsed.token)) score += 100;
+    else if (parsed.letters.length === 3 && parsed.digits.length === 4) {
+      const sameDigits = normDB.filter(r => extractDigitsFromNormPlate(r.normPlate) === parsed.digits);
+      if (sameDigits.length === 1) score += 60;
+      else if (sameDigits.length > 0) {
+        let bestDist = 99;
+        for (const r of sameDigits) {
+          const dbLetters = lettersFromNormPlate(r.normPlate);
+          let dist = 0;
+          for (let i = 0; i < 3; i++) if (dbLetters[i] !== parsed.letters[i]) dist++;
+          if (dist < bestDist) bestDist = dist;
+        }
+        if (bestDist <= 1) score += 45;
+        else if (bestDist === 2) score += 25;
+      }
+    } else if (parsed.letters.length === 3 && normDB.some(r => r.normPlate.startsWith(parsed.letters))) {
+      score += 15;
+    }
+    return score;
+  }
+
+  // When digits are clear but OCR/voice garbled a letter, snap to the closest
+  // plate in the DB that shares those digits (within 1–2 letter edits).
+  function refinePlateWithDB(parsed) {
+    if (!parsed || parsed.letters.length < 2 || parsed.digits.length < 3) return parsed;
+    if (parsed.token && normDB.some(r => r.normPlate === parsed.token)) return parsed;
+
+    const digits = parsed.digits.length === 4
+      ? parsed.digits
+      : parsed.digits.padStart(4, '0').slice(-4);
+    const candidates = normDB.filter(r => extractDigitsFromNormPlate(r.normPlate) === digits);
+    if (!candidates.length) return parsed;
+
+    let best = parsed;
+    let bestDist = 99;
+    for (const row of candidates) {
+      const dbLetters = lettersFromNormPlate(row.normPlate);
+      if (dbLetters.length !== 3) continue;
+      let dist = 0;
+      const spoken = parsed.letters.padEnd(3, ' ').slice(0, 3);
+      for (let i = 0; i < 3; i++) if (dbLetters[i] !== spoken[i]) dist++;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = { letters: dbLetters, digits, token: row.normPlate };
+      }
+    }
+    return bestDist <= 2 ? best : parsed;
+  }
+
+  function pickBestTranscript(candidates) {
+    let bestText = '';
+    let bestScore = -1;
+    let bestParsed = { letters: '', digits: '', token: '' };
+    for (const text of candidates) {
+      if (!text || !String(text).trim()) continue;
+      const parsed = refinePlateWithDB(parseSaudiPlateSpeech(text));
+      const score = scorePlateCandidate(parsed);
+      if (score > bestScore) {
+        bestScore = score;
+        bestText = text;
+        bestParsed = parsed;
+      }
+    }
+    return { text: bestText, parsed: bestParsed, score: bestScore };
+  }
+
+  // OCR often splits Arabic letters and digits across lines or adds noise —
+  // try several extractions and keep the one that best matches a real plate.
+  function parseOCRPlateText(text) {
+    const cleaned = stripBidiMarks(normalizeDigits(stripTashkeel(text || '')))
+      .replace(/[A-Za-z]{2,}/g, ' ')
+      .replace(/[^\u0621-\u064A0-9\s\n|]/g, ' ');
+
+    let best = refinePlateWithDB(parseSaudiPlateSpeech(cleaned));
+    let bestScore = scorePlateCandidate(best);
+
+    const tryCandidate = (letters, digits) => {
+      const normalizedLetters = normalizeArabicLetters(letters).toLowerCase().slice(0, 3);
+      const normalizedDigits = String(digits).replace(/\D/g, '').slice(0, 4);
+      if (normalizedLetters.length < 2 || normalizedDigits.length < 3) return;
+      const candidate = refinePlateWithDB({
+        letters: normalizedLetters,
+        digits: normalizedDigits,
+        token: normalizedLetters + normalizedDigits
+      });
+      const score = scorePlateCandidate(candidate);
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+    };
+
+    for (const glued of cleaned.match(/[\u0621-\u064A]{2,4}\d{3,4}|\d{3,4}[\u0621-\u064A]{2,4}/g) || []) {
+      tryCandidate(parseSaudiPlateSpeech(glued).letters, parseSaudiPlateSpeech(glued).digits);
+    }
+
+    const letterRuns = cleaned.match(/[\u0621-\u064A]{2,4}/g) || [];
+    const digitRuns = cleaned.match(/\d{3,4}/g) || [];
+    for (const lr of letterRuns) {
+      for (const dr of digitRuns) {
+        tryCandidate(lr, dr);
+      }
+    }
+
+    for (const line of cleaned.split(/\n+/)) {
+      const lineParsed = refinePlateWithDB(parseSaudiPlateSpeech(line));
+      const score = scorePlateCandidate(lineParsed);
+      if (score > bestScore) {
+        best = lineParsed;
+        bestScore = score;
+      }
+    }
+
+    return best;
   }
 
   // rawRecords already comes fully normalized (base + any extra records,
@@ -952,15 +1078,7 @@
 
   // Pick the STT alternative most likely to be a valid Saudi plate.
   function scorePlateTranscript(text) {
-    const p = parseSaudiPlateSpeech(text);
-    let score = 0;
-    if (p.letters.length === 3) score += 20;
-    else score += p.letters.length * 4;
-    if (p.digits.length === 4) score += 20;
-    else score += p.digits.length * 4;
-    if (p.token && normDB.some(r => r.normPlate === p.token)) score += 100;
-    else if (p.letters.length === 3 && normDB.some(r => r.normPlate.startsWith(p.letters))) score += 15;
-    return score;
+    return scorePlateCandidate(refinePlateWithDB(parseSaudiPlateSpeech(text)));
   }
 
   function renderEmpty() {
@@ -968,8 +1086,10 @@
   }
 
   function renderResults(query) {
-    const token = transcriptToPlateToken(query);
+    const parsed = refinePlateWithDB(parseSaudiPlateSpeech(query));
+    const token = parsed.token;
     if (!token) { renderEmpty(); return false; }
+    setPlateFields(parsed);
 
     const exact = [];
     const partial = [];
@@ -1076,7 +1196,7 @@
       renderEmpty();
       return;
     }
-    const parsed = parseSaudiPlateSpeech(rawCombined);
+    const parsed = refinePlateWithDB(parseSaudiPlateSpeech(rawCombined));
     setPlateFields(parsed);
     debounceTimer = setTimeout(() => renderResults(rawCombined), 150);
   }
@@ -1117,7 +1237,33 @@
     // first brief silence.
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.maxAlternatives = 5;
+    recognition.maxAlternatives = 10;
+
+    function collectTranscriptCandidates(event, interimText, finalText) {
+      const candidates = [];
+      const combined = (finalText + ' ' + (interimText || '')).trim();
+      if (combined) candidates.push(combined);
+      if (interimText && interimText.trim()) candidates.push(interimText.trim());
+      for (let i = 0; i < event.results.length; i++) {
+        const res = event.results[i];
+        for (let j = 0; j < res.length; j++) {
+          const t = res[j].transcript;
+          if (t && t.trim()) candidates.push(t.trim());
+        }
+      }
+      return candidates;
+    }
+
+    function maybeStopEarly(parsed, score) {
+      if (parsed.letters.length === 3 && parsed.digits.length === 4 &&
+          (score >= 100 || score >= 60)) {
+        stoppingForSearch = true;
+        clearTimeout(micTimeout);
+        try { recognition.stop(); } catch (e) {}
+        return true;
+      }
+      return false;
+    }
 
     recognition.onstart = () => {
       listening = true;
@@ -1133,28 +1279,26 @@
     };
 
     recognition.onresult = (event) => {
+      const finalParts = [];
       let interimText = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      for (let i = 0; i < event.results.length; i++) {
         const res = event.results[i];
         if (res.isFinal) {
-          let best = res[0].transcript;
-          let bestScore = scorePlateTranscript(best);
-          for (let j = 1; j < res.length; j++) {
-            const alt = res[j].transcript;
-            const altScore = scorePlateTranscript(alt);
-            if (altScore > bestScore) {
-              best = alt;
-              bestScore = altScore;
-            }
-          }
-          finalTranscriptBuffer += best;
-        } else {
+          const segmentBest = pickBestTranscript(
+            Array.from({ length: res.length }, (_, j) => res[j].transcript)
+          );
+          if (segmentBest.text) finalParts.push(segmentBest.text);
+        } else if (i >= event.resultIndex) {
           interimText += res[0].transcript;
         }
       }
-      const liveRaw = (finalTranscriptBuffer + ' ' + interimText).trim();
-      const liveParsed = parseSaudiPlateSpeech(liveRaw);
-      setPlateFields(liveParsed);
+
+      const assembledFinal = finalParts.join(' ').trim();
+      const candidates = collectTranscriptCandidates(event, interimText, assembledFinal);
+      const best = pickBestTranscript(candidates);
+      if (best.text) finalTranscriptBuffer = best.text;
+      setPlateFields(best.parsed);
+      maybeStopEarly(best.parsed, best.score);
     };
 
     // Runs once the 5-second window ends (recognition.stop() fires this
@@ -1169,7 +1313,7 @@
         clearPlateFields();
         return;
       }
-      const parsed = parseSaudiPlateSpeech(transcript);
+      const parsed = refinePlateWithDB(parseSaudiPlateSpeech(transcript));
       if (parsed.letters.length < 3) {
         statusLine.textContent = '⚠️ محتاج ٣ حروف — قول الحروف الأول (مثال: عبق أو عين باء قاف)';
         statusLine.className = 'status-line listening-text';
@@ -1385,8 +1529,7 @@
       cropped.height = cropCanvas.height;
       cropped.getContext('2d').drawImage(cropCanvas, 0, 0);
     }
-    const out = preprocessForOCR(cropped);
-    out.toBlob((blob) => { runOCR(blob, triggerBtn); }, 'image/png');
+    cropped.toBlob((blob) => { runOCR(blob, triggerBtn); }, 'image/png');
     cropState = null;
   });
 
@@ -1424,8 +1567,8 @@
   // once zoomed in on just the plate — often with glare or uneven lighting —
   // and OCR engines are dramatically more accurate on large, crisply
   // binarized text than on small/dim color photos straight from a phone.
-  function preprocessForOCR(sourceCanvas) {
-    const MIN_DIM = 640; // upscale so the shorter side is at least this many px
+  function preprocessForOCR(sourceCanvas, invert) {
+    const MIN_DIM = 800;
     let scale = 1;
     const shortSide = Math.min(sourceCanvas.width, sourceCanvas.height);
     if (shortSide > 0 && shortSide < MIN_DIM) {
@@ -1462,11 +1605,48 @@
 
     const threshold = computeOtsuThreshold(gray, n);
     for (let i = 0, j = 0; i < d.length; i += 4, j++) {
-      const v = gray[j] > threshold ? 255 : 0;
+      let v = gray[j] > threshold ? 255 : 0;
+      if (invert) v = 255 - v;
       d[i] = d[i + 1] = d[i + 2] = v;
     }
     ctx.putImageData(imgData, 0, 0);
     return out;
+  }
+
+  function preprocessVariants(sourceCanvas) {
+    return [
+      preprocessForOCR(sourceCanvas, false),
+      preprocessForOCR(sourceCanvas, true)
+    ];
+  }
+
+  async function recognizePlateImage(blob) {
+    const bitmap = await createImageBitmap(blob);
+    const src = document.createElement('canvas');
+    src.width = bitmap.width;
+    src.height = bitmap.height;
+    src.getContext('2d').drawImage(bitmap, 0, 0);
+
+    const psmModes = ['7', '6', '13'];
+    let best = { parsed: { letters: '', digits: '', token: '' }, score: -1, text: '' };
+
+    for (const variant of preprocessVariants(src)) {
+      const variantBlob = await new Promise(resolve => variant.toBlob(resolve, 'image/png'));
+      for (const psm of psmModes) {
+        await ocrWorker.setParameters({ tessedit_pageseg_mode: psm });
+        const { data } = await ocrWorker.recognize(variantBlob);
+        const text = (data && data.text) ? data.text.trim() : '';
+        if (!text) continue;
+        const parsed = parseOCRPlateText(text);
+        const score = scorePlateCandidate(parsed);
+        if (score > best.score) {
+          best = { parsed, score, text };
+        }
+      }
+    }
+
+    await ocrWorker.setParameters({ tessedit_pageseg_mode: '7' });
+    return best;
   }
 
   async function runOCR(file, triggerBtn) {
@@ -1491,41 +1671,34 @@
         await ocrWorker.setParameters({
           tessedit_char_whitelist:
             '0123456789٠١٢٣٤٥٦٧٨٩ابتثجحخدذرزسشصضطظعغفقكلمنهويىءأإآؤئة ',
-          // PSM 6 = "assume a single uniform block of text" — a good fit for
-          // a tight crop of just the plate (may still have 2 stacked rows).
-          tessedit_pageseg_mode: '6'
+          tessedit_pageseg_mode: '7'
         });
       }
 
-      statusLine.textContent = '📷 جارٍ تحليل الصورة...';
-      const { data } = await ocrWorker.recognize(file);
-      const text = (data && data.text) ? data.text.trim() : '';
+      statusLine.textContent = '📷 جارٍ تحليل الصورة (عدة محاولات)...';
+      const best = await recognizePlateImage(file);
+      const text = best.text;
+      const parsed = best.parsed;
 
-      if (!text) {
+      if (!text || (!parsed.letters && !parsed.digits)) {
         statusLine.textContent = '⚠️ مقدرتش أقرا أي نص من الصورة — جرب تحديد مساحة اللوحة بدقة أكتر';
         statusLine.className = 'status-line';
         renderEmpty();
         return;
       }
 
-      setPlateFields(parseSaudiPlateSpeech(text));
+      setPlateFields(parsed);
       const found = renderResults(text);
+      const display = getPlateStatusLabel() || formatPlateSpeechDisplay(parsed);
       if (found) {
-        statusLine.textContent = '✅ قريت: ' + text.replace(/\s+/g, ' ');
+        statusLine.textContent = '✅ قريت: ' + display;
         statusLine.className = 'status-line ok-text';
+      } else if (parsed.digits.length >= 3 && renderResultsByDigitsOnly(parsed.digits)) {
+        statusLine.textContent = '⚠️ قريت الأرقام (' + parsed.digits + ') بس مش متأكد من الحروف — دي النتائج المطابقة للأرقام، تأكد من الحروف يدويًا';
+        statusLine.className = 'status-line listening-text';
       } else {
-        // The 3 Arabic letters are the hardest part of a plate photo to OCR
-        // reliably (small, sometimes worn stickers/stamps nearby). The 4
-        // digits are usually still legible even then, so fall back to
-        // searching by digits only instead of reporting a flat failure.
-        const parsed = parseSaudiPlateSpeech(text);
-        if (parsed.digits.length >= 3 && renderResultsByDigitsOnly(parsed.digits)) {
-          statusLine.textContent = '⚠️ قريت الأرقام (' + parsed.digits + ') بس مش متأكد من الحروف — دي النتائج المطابقة للأرقام، تأكد من الحروف يدويًا';
-          statusLine.className = 'status-line listening-text';
-        } else {
-          statusLine.textContent = '✅ قريت: ' + text.replace(/\s+/g, ' ');
-          statusLine.className = 'status-line ok-text';
-        }
+        statusLine.textContent = '✅ قريت: ' + display + ' — راجع الحروف لو محتاج';
+        statusLine.className = 'status-line ok-text';
       }
     } catch (err) {
       statusLine.textContent = '⚠️ خطأ في قراءة الصورة: ' + (err.message || err);
