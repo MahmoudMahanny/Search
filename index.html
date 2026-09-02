@@ -1512,9 +1512,25 @@
       setListeningStatus('✅ سمعت: ' + display + ' — المايك لسه شغال', 'ok-text');
       if (micLiveText) micLiveText.textContent = 'المايك شغال الآن — استماع مستمر';
       setMicUi(true);
+      // Auto-clear fields after 1.5s if user hasn't started speaking yet
+      clearTimeout(idleResetTimer);
+      idleResetTimer = setTimeout(() => {
+        if (!micOpen) return;
+        clearPlateFields();
+        readyToClearOnNextVoice = false;
+        setListeningStatus(voiceOpenHint(), 'listening-text');
+      }, 1500);
     } else {
       setListeningStatus('🔁 سمعت: ' + display + ' — مفيش تطابق تام، قول تاني', 'listening-text');
       setMicUi(true);
+      // Auto-clear fields after 800ms on no-match
+      clearTimeout(idleResetTimer);
+      idleResetTimer = setTimeout(() => {
+        if (!micOpen) return;
+        clearPlateFields();
+        readyToClearOnNextVoice = false;
+        setListeningStatus(voiceOpenHint(), 'listening-text');
+      }, 800);
     }
     return true;
   }
