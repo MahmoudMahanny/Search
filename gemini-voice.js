@@ -9,9 +9,9 @@
 
   const MODEL_PREF_KEY = 'lammahVoiceModel';
   const MODEL_CANDIDATES = [
-    'gemini-2.0-flash-live-001',
-    'gemini-3.1-flash-live-preview',
-    'gemini-2.5-flash-native-audio-preview-12-2025'
+    'gemini-2.5-flash-native-audio-latest',
+    'gemini-2.5-flash-native-audio-preview-12-2025',
+    'gemini-3.1-flash-live-preview'
   ];
   const WS_BASE =
     'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
@@ -100,7 +100,6 @@
     let running = false;
     let setupDone = false;
     let modelName = MODEL_CANDIDATES[0];
-    let modality = 'TEXT';
     let intentionalClose = false;
     let sendingPaused = false;
     let pcmQueue = [];
@@ -292,7 +291,9 @@
       return {
         setup: {
           model: 'models/' + name,
-          responseModalities: [modality],
+          generationConfig: {
+            responseModalities: ['AUDIO']
+          },
           systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
           inputAudioTranscription: {},
           tools: [
@@ -374,18 +375,6 @@
     async function connectFast() {
       let lastErr = null;
       const models = preferredModels();
-      modality = 'TEXT';
-      for (let i = 0; i < models.length; i++) {
-        try {
-          await connectOnce(models[i]);
-          return;
-        } catch (err) {
-          lastErr = err;
-          try { if (ws) ws.close(); } catch (e) { /* ignore */ }
-          ws = null;
-        }
-      }
-      modality = 'AUDIO';
       for (let i = 0; i < models.length; i++) {
         try {
           await connectOnce(models[i]);

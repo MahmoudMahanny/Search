@@ -1609,6 +1609,7 @@
         if (!micOpen) return;
         const t = String(text || '').trim();
         if (!t) return;
+        // Live stream transcription
         if (!isFinalish) {
           if (t.length >= geminiInputBuffer.length && t.startsWith(geminiInputBuffer.slice(0, Math.min(12, geminiInputBuffer.length)))) {
             geminiInputBuffer = t;
@@ -1626,6 +1627,7 @@
         if (!micOpen) return;
         const parsed = normalizePlateParts(plate.letters, plate.digits);
         if (parsed.letters.length === 3 && parsed.digits.length === 4) {
+          // Instant direct DB check as soon as Gemini fires tool
           handleVoicePlate(parsed, plate.transcript || parsed.token);
         }
       },
@@ -1914,8 +1916,10 @@
     };
 
     try {
+      // 1. ALWAYS try live streaming engine first (Gemini Live) on BOTH web and Android!
       if (await startGemini()) return;
 
+      // 2. Fallback to native Android speech if Gemini failed on device
       if (isCapacitorAndroidHost()) {
         setListeningStatus('🎙️ جارٍ ربط مايك التطبيق...', 'listening-text');
         await waitForCapacitor(2000);
@@ -1928,6 +1932,8 @@
           }
         }
       }
+
+      // 3. Fallback to browser Web Speech API
       await startWeb();
     } catch (err) {
       setListeningStatus('⚠️ تعذر فتح المايك: ' + (err && err.message ? err.message : err), '');
