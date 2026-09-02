@@ -583,7 +583,7 @@
         <div id="plateLatin" class="plate-latin"></div>
       </div>
     </div>
-    <div class="plate-hint">٣ حروف + ٤ أرقام — المايك يستخدم Whisper مجاني (أدق، أول تحميل ياخد شوية وقت)</div>
+    <div class="plate-hint">٣ حروف عربية + ٤ أرقام — فعّل المايك وقول اللوحة</div>
 
     <div class="media-actions">
       <button id="camBtn" class="media-btn" title="التقاط صورة">
@@ -1218,21 +1218,25 @@
 
   let onMatchPopupClosed = null;
 
-  // ---- Voice recognition: Whisper (primary, free on-device) + Web Speech fallback ----
-  const WHISPER_MODEL_ID = 'Xenova/whisper-small';
-  const WHISPER_CHUNK_MS = 2800;
-  const WHISPER_IMPORT = 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/+esm';
+  // ---- Voice: on-device STT when ready (silent preload) + browser speech fallback ----
+  const STT_MODEL_ID = 'Xenova/whisper-small';
+  const STT_CHUNK_MS = 2800;
+  const STT_MODULE_URL = 'https://esm.sh/@xenova/transformers@2.17.2';
+  const LISTENING_MSG = '🎙️ المايك مفتوح — قول أي لوحة في أي وقت';
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const voiceSupported = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
 
-  let whisperTranscriber = null;
-  let whisperLoadPromise = null;
-  let whisperMode = false;
+  let sttPipeline = null;
+  let sttLoadPromise = null;
+  let sttEngineReady = false;
+  let sttEngineDisabled = false;
   let recognition = null;
   let listening = false;
+  let usingOnDeviceStt = false;
   let backgroundListening = false;
   let restartTimer = null;
   let idleResetTimer = null;
+  let recordCycleTimer = null;
   let softRestarting = false;
   let finalTranscriptBuffer = '';
   let transcriptRolling = '';
@@ -1241,18 +1245,18 @@
   let micStream = null;
   let mediaRecorder = null;
   let transcribeChain = Promise.resolve();
-  let chunksProcessing = 0;
+  let sttFailCount = 0;
   const micLabel = document.getElementById('micLabel');
 
   function setMicUi(active) {
     if (active) {
       micBtn.classList.add('listening');
       micLabel.textContent = 'مفتوح';
-      micBtn.title = 'إيقاف الاستماع المستمر';
+      micBtn.title = 'إيقاف الاستماع';
     } else {
       micBtn.classList.remove('listening');
       micLabel.textContent = 'مايك';
-      micBtn.title = 'تفعيل الاستماع المستمر';
+      micBtn.title = 'بدء الاستماع';
     }
   }
 
@@ -1267,12 +1271,6 @@
     lastSearchedToken = '';
   }
 
-  function listeningReadyMessage() {
-    return whisperMode
-      ? '🎙️ Whisper شغال — قول ٣ حروف ثم ٤ أرقام (أدق، ممكن يكون أبطأ شوية)'
-      : '🎙️ المايك مفتوح — قول أي لوحة في أي وقت';
-  }
-
   function handleVoicePlate(parsed, rawText) {
     if (parsed.letters.length !== 3 || parsed.digits.length !== 4) return false;
     if (parsed.token === lastSearchedToken) return false;
@@ -1283,7 +1281,7 @@
     const found = renderResults(rawText || parsed.token);
 
     if (found) {
-      setListeningStatus('✅ سمعت: ' + display + ' — المايك لسه مفتوح', 'ok-text');
+      setListeningStatus('✅ تم العثور على: ' + display, 'ok-text');
       pauseListeningForAlarm = true;
       stopCapture();
       clearTimeout(restartTimer);
@@ -1293,12 +1291,11 @@
         resetVoiceBuffer();
         clearPlateFields();
         if (backgroundListening) {
-          setListeningStatus(listeningReadyMessage(), 'listening-text');
+          setListeningStatus(LISTENING_MSG, 'listening-text');
           startCapture();
         }
       }, 5200);
     } else {
-      // Demo behavior: stay silent on non-matches and keep listening.
       clearPlateFields();
       resetVoiceBuffer();
     }
@@ -1327,34 +1324,63 @@
     }, 1800);
   }
 
-  async function ensureWhisper() {
-    if (whisperTranscriber) return whisperTranscriber;
-    if (whisperLoadPromise) return whisperLoadPromise;
-    whisperLoadPromise = (async () => {
-      setListeningStatus('⏬ جارٍ تحميل نموذج Whisper (أول مرة فقط — ~150MB)...', 'listening-text');
-      const { pipeline, env } = await import(WHISPER_IMPORT);
-      if (env) {
-        env.allowLocalModels = false;
-        env.useBrowserCache = true;
-      }
-      whisperTranscriber = await pipeline('automatic-speech-recognition', WHISPER_MODEL_ID, {
-        progress_callback: (data) => {
-          if (!data) return;
-          if (data.status === 'progress' && typeof data.progress === 'number') {
-            setListeningStatus('⏬ تحميل Whisper ' + Math.round(data.progress) + '%', 'listening-text');
-          } else if (data.status === 'done') {
-            setListeningStatus('✅ Whisper جاهز', 'listening-text');
-          }
+  function disableOnDeviceStt() {
+    sttEngineDisabled = true;
+    sttEngineReady = false;
+    usingOnDeviceStt = false;
+  }
+
+  async function preloadSttEngine() {
+    if (sttEngineDisabled || sttEngineReady || sttLoadPromise) return sttLoadPromise;
+    sttLoadPromise = (async () => {
+      try {
+        const { pipeline, env } = await import(STT_MODULE_URL);
+        if (env && env.backends && env.backends.onnx && env.backends.onnx.wasm) {
+          env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/';
         }
-      });
-      return whisperTranscriber;
+        if (env) {
+          env.allowLocalModels = false;
+          env.useBrowserCache = true;
+        }
+        sttPipeline = await pipeline('automatic-speech-recognition', STT_MODEL_ID);
+        sttEngineReady = true;
+        sttFailCount = 0;
+      } catch (e) {
+        disableOnDeviceStt();
+      }
     })();
+    return sttLoadPromise;
+  }
+
+  async function blobToMono16k(blob) {
+    const arrayBuffer = await blob.arrayBuffer();
+    const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let decoded;
     try {
-      return await whisperLoadPromise;
-    } catch (err) {
-      whisperLoadPromise = null;
-      throw err;
+      decoded = await decodeCtx.decodeAudioData(arrayBuffer.slice(0));
+    } finally {
+      try { await decodeCtx.close(); } catch (e) {}
     }
+    const sampleRate = decoded.sampleRate;
+    const length = decoded.length;
+    const mono = new Float32Array(length);
+    if (decoded.numberOfChannels === 1) {
+      mono.set(decoded.getChannelData(0));
+    } else {
+      for (let c = 0; c < decoded.numberOfChannels; c++) {
+        const ch = decoded.getChannelData(c);
+        for (let i = 0; i < length; i++) mono[i] += ch[i] / decoded.numberOfChannels;
+      }
+    }
+    if (sampleRate === 16000) return mono;
+    const outLen = Math.max(1, Math.round(length * 16000 / sampleRate));
+    const out = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      const src = i * sampleRate / 16000;
+      const idx = Math.min(length - 1, Math.floor(src));
+      out[i] = mono[idx];
+    }
+    return out;
   }
 
   function pickRecorderMime() {
@@ -1365,8 +1391,14 @@
     return '';
   }
 
+  function clearRecordCycleTimer() {
+    clearTimeout(recordCycleTimer);
+    recordCycleTimer = null;
+  }
+
   function stopCapture() {
     softRestarting = true;
+    clearRecordCycleTimer();
     try {
       if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
     } catch (e) {}
@@ -1376,80 +1408,85 @@
       micStream = null;
     }
     listening = false;
+    usingOnDeviceStt = false;
   }
 
-  async function processWhisperChunk(blob) {
-    if (!backgroundListening || pauseListeningForAlarm || !blob || blob.size < 1200) return;
-    chunksProcessing++;
-    try {
-      const transcriber = await ensureWhisper();
-      if (!backgroundListening || pauseListeningForAlarm) return;
-      setListeningStatus('🧠 جارٍ فهم الصوت...', 'listening-text');
-      const result = await transcriber(blob, {
-        language: 'arabic',
-        task: 'transcribe'
-      });
-      const text = (result && result.text) ? result.text.trim() : '';
-      if (text && backgroundListening && !pauseListeningForAlarm) {
-        applyTranscript(text);
-        if (backgroundListening && !pauseListeningForAlarm) {
-          setListeningStatus(listeningReadyMessage(), 'listening-text');
-        }
-      } else if (backgroundListening && !pauseListeningForAlarm) {
-        setListeningStatus(listeningReadyMessage(), 'listening-text');
-      }
-    } catch (err) {
-      console.warn('Whisper chunk failed', err);
-      if (backgroundListening && !pauseListeningForAlarm) {
-        setListeningStatus('⚠️ خطأ Whisper — جرب تاني أو أعد فتح المايك', '');
-      }
-    } finally {
-      chunksProcessing--;
-    }
-  }
-
-  function queueWhisperChunk(blob) {
-    transcribeChain = transcribeChain
-      .then(() => processWhisperChunk(blob))
-      .catch(() => {});
-  }
-
-  async function startWhisperCapture() {
-    if (!backgroundListening || pauseListeningForAlarm) return;
+  async function switchToWebSpeechSilently() {
+    disableOnDeviceStt();
     stopCapture();
     softRestarting = false;
+    if (!backgroundListening || pauseListeningForAlarm) return;
     try {
-      await ensureWhisper();
-      micStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
+      if (!micStream) {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+    } catch (e) { return; }
+    try { micStream.getTracks().forEach(t => t.stop()); micStream = null; } catch (e) {}
+    startWebSpeechCapture();
+  }
+
+  async function processSttChunk(blob) {
+    if (!backgroundListening || pauseListeningForAlarm || !blob || blob.size < 800) return;
+    if (!sttEngineReady || !sttPipeline || sttEngineDisabled) return;
+    try {
+      const audio = await blobToMono16k(blob);
+      if (!audio || audio.length < 1600) return;
+      const result = await sttPipeline(audio, {
+        language: 'arabic',
+        task: 'transcribe',
+        sampling_rate: 16000
       });
-      const mimeType = pickRecorderMime();
-      mediaRecorder = mimeType ? new MediaRecorder(micStream, { mimeType }) : new MediaRecorder(micStream);
-      mediaRecorder.ondataavailable = (ev) => {
-        if (!ev.data || !ev.data.size || pauseListeningForAlarm || !backgroundListening) return;
-        queueWhisperChunk(ev.data);
-      };
-      mediaRecorder.onstart = () => {
-        listening = true;
-        whisperMode = true;
-        setMicUi(true);
-        setListeningStatus(listeningReadyMessage(), 'listening-text');
-      };
-      mediaRecorder.onerror = () => {
-        setListeningStatus('⚠️ خطأ في تسجيل الصوت', '');
-      };
-      mediaRecorder.start(WHISPER_CHUNK_MS);
-    } catch (err) {
-      whisperMode = false;
-      backgroundListening = false;
-      setMicUi(false);
-      setListeningStatus('⚠️ مرفوض إذن المايك — فعّل المايك من إعدادات الموقع', '');
-      throw err;
+      const text = (result && result.text) ? result.text.trim() : '';
+      if (text) applyTranscript(text);
+      sttFailCount = 0;
+    } catch (e) {
+      sttFailCount++;
+      if (sttFailCount >= 2 && backgroundListening) {
+        await switchToWebSpeechSilently();
+      }
     }
+  }
+
+  function queueSttChunk(blob) {
+    transcribeChain = transcribeChain.then(() => processSttChunk(blob)).catch(() => {});
+  }
+
+  function beginRecordingCycle() {
+    if (!backgroundListening || pauseListeningForAlarm || !micStream || !sttEngineReady || sttEngineDisabled) return;
+    clearRecordCycleTimer();
+    const mimeType = pickRecorderMime();
+    const chunks = [];
+    const rec = mimeType ? new MediaRecorder(micStream, { mimeType }) : new MediaRecorder(micStream);
+    mediaRecorder = rec;
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      if (!backgroundListening || pauseListeningForAlarm || sttEngineDisabled) return;
+      const blob = new Blob(chunks, { type: rec.mimeType || mimeType || 'audio/webm' });
+      queueSttChunk(blob);
+      beginRecordingCycle();
+    };
+    rec.onerror = () => { switchToWebSpeechSilently(); };
+    try {
+      rec.start();
+      recordCycleTimer = setTimeout(() => {
+        if (rec.state === 'recording') {
+          try { rec.stop(); } catch (e) {}
+        }
+      }, STT_CHUNK_MS);
+    } catch (e) {
+      switchToWebSpeechSilently();
+    }
+  }
+
+  async function startOnDeviceCapture() {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    });
+    usingOnDeviceStt = true;
+    listening = true;
+    setMicUi(true);
+    setListeningStatus(LISTENING_MSG, 'listening-text');
+    beginRecordingCycle();
   }
 
   function setupWebSpeechFallback() {
@@ -1462,9 +1499,9 @@
 
     recognition.onstart = () => {
       listening = true;
-      whisperMode = false;
+      usingOnDeviceStt = false;
       setMicUi(true);
-      setListeningStatus(listeningReadyMessage(), 'listening-text');
+      setListeningStatus(LISTENING_MSG, 'listening-text');
     };
 
     recognition.onresult = (event) => {
@@ -1491,14 +1528,14 @@
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         backgroundListening = false;
         setMicUi(false);
-        setListeningStatus('⚠️ الإذن مرفوض — فعّل المايك', '');
+        setListeningStatus('⚠️ فعّل إذن المايك من إعدادات المتصفح', '');
       }
       listening = false;
     };
 
     recognition.onend = () => {
       listening = false;
-      if (softRestarting || pauseListeningForAlarm) return;
+      if (softRestarting || pauseListeningForAlarm || usingOnDeviceStt) return;
       if (backgroundListening) {
         clearTimeout(restartTimer);
         restartTimer = setTimeout(() => { startWebSpeechCapture(); }, 250);
@@ -1509,22 +1546,27 @@
 
   function startWebSpeechCapture() {
     if (!backgroundListening || pauseListeningForAlarm || !recognition) return;
+    usingOnDeviceStt = false;
     try { recognition.start(); } catch (e) {}
   }
 
   async function startCapture() {
     if (!backgroundListening || pauseListeningForAlarm) return;
-    try {
-      await startWhisperCapture();
-    } catch (err) {
-      if (setupWebSpeechFallback()) {
-        setListeningStatus('⚠️ Whisper مش متاح — رجعنا للتعرف الافتراضي للمتصفح', 'listening-text');
-        startWebSpeechCapture();
-      } else {
-        backgroundListening = false;
-        setMicUi(false);
-        setListeningStatus('البحث الصوتي مش مدعوم في المتصفح ده', '');
+    softRestarting = false;
+    if (sttEngineReady && !sttEngineDisabled) {
+      try {
+        await startOnDeviceCapture();
+        return;
+      } catch (e) {
+        disableOnDeviceStt();
       }
+    }
+    if (recognition) {
+      startWebSpeechCapture();
+    } else {
+      backgroundListening = false;
+      setMicUi(false);
+      setListeningStatus('البحث الصوتي غير متاح على هذا الجهاز', '');
     }
   }
 
@@ -1549,11 +1591,14 @@
     softRestarting = false;
     resetVoiceBuffer();
     setMicUi(true);
+    setListeningStatus(LISTENING_MSG, 'listening-text');
     await startCapture();
   }
 
   if (voiceSupported) {
     setupWebSpeechFallback();
+    preloadSttEngine();
+
     micBtn.addEventListener('click', () => {
       if (backgroundListening) disableBackgroundListening();
       else enableBackgroundListening();
@@ -1565,14 +1610,14 @@
         softRestarting = false;
         resetVoiceBuffer();
         clearTimeout(restartTimer);
-        setListeningStatus(listeningReadyMessage(), 'listening-text');
+        setListeningStatus(LISTENING_MSG, 'listening-text');
         startCapture();
       }
     };
   } else {
     micBtn.disabled = true;
     micBtn.style.opacity = '0.4';
-    statusLine.textContent = 'البحث الصوتي مش مدعوم في المتصفح ده — استخدم الكتابة';
+    statusLine.textContent = 'البحث الصوتي غير متاح — استخدم الكتابة';
   }
 
   // ---- Image (OCR) search with interactive crop ----
