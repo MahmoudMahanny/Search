@@ -704,7 +704,17 @@
   <a href="history.html" class="nav-link"><span class="nav-icon">📋</span>السجل</a>
 </nav>
 
+<script>
+  window.__LAMMAH_APP_SHELL__ = /^https?:\/\/localhost/i.test(location.origin) ||
+    location.protocol === 'capacitor:' ||
+    /android_asset/i.test(location.href);
+</script>
 <script src="vendor/xlsx.full.min.js"></script>
+<script>
+  if (typeof XLSX === 'undefined') {
+    document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');
+  }
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
 <script src="db.js"></script>
 <script>
@@ -1252,14 +1262,21 @@
   const WebSpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   function isCapacitorAndroidHost() {
+    if (window.__LAMMAH_APP_SHELL__) return true;
     try {
       if (window.Capacitor?.getPlatform?.() === 'android') return true;
       if (window.Capacitor?.isNativePlatform?.()) return true;
     } catch (e) { /* ignore */ }
     const origin = window.location.origin || '';
-    if (/^https:\/\/localhost\b/i.test(origin)) return true;
+    const href = window.location.href || '';
+    if (/^https?:\/\/localhost/i.test(origin)) return true;
     if (window.location.protocol === 'capacitor:') return true;
+    if (/android_asset/i.test(href)) return true;
     return false;
+  }
+
+  function isAndroidMobileBrowser() {
+    return /android/i.test(navigator.userAgent) && !isCapacitorAndroidHost();
   }
 
   function waitForCapacitor(maxMs) {
@@ -1419,10 +1436,20 @@
     }
   };
 
-  await waitForCapacitor(2500);
-  isNativeAndroid = isCapacitorAndroidHost();
+  const inAppShell = isCapacitorAndroidHost();
+  await waitForCapacitor(inAppShell ? 8000 : 1500);
+  isNativeAndroid = inAppShell;
 
-  if (isNativeAndroid && window.Capacitor?.registerPlugin) {
+  if (inAppShell && !window.Capacitor?.registerPlugin) {
+    enableMicSession = async () => {
+      setListeningStatus(
+        '⚠️ حدّث التطبيق لآخر نسخة — المايك محتاج APK جديد من GitHub Releases',
+        ''
+      );
+      micOpen = false;
+      setMicUi(false);
+    };
+  } else if (inAppShell && window.Capacitor?.registerPlugin) {
     nativeSpeech = window.Capacitor.registerPlugin('SpeechRecognition');
     let nativeListenersReady = false;
 
@@ -1508,10 +1535,10 @@
         setMicUi(false);
       }
     };
-  } else if (/android/i.test(navigator.userAgent)) {
+  } else if (isAndroidMobileBrowser()) {
     enableMicSession = async () => {
       setListeningStatus(
-        '⚠️ على أندرويد: حمّل تطبيق لمّاح (APK) — المايك في المتصفح مش مدعوم',
+        '⚠️ أنت في Chrome — مش تطبيق APK. حمّل «لمّاح» من GitHub Releases',
         ''
       );
       micOpen = false;

@@ -35,8 +35,11 @@ for (const name of optional) {
 }
 
 mkdirSync(vendorDir, { recursive: true });
+const vendorRoot = join(root, 'vendor');
+mkdirSync(vendorRoot, { recursive: true });
 if (existsSync(xlsxSrc)) {
   cpSync(xlsxSrc, join(vendorDir, 'xlsx.full.min.js'));
+  cpSync(xlsxSrc, join(vendorRoot, 'xlsx.full.min.js'));
 } else {
   console.warn('Warning: xlsx bundle missing — run npm install first');
 }

@@ -1,6 +1,6 @@
 {
-  "versionCode": 5,
-  "versionName": "1.0.4",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v1.0.4/lammah.apk",
-  "notes": "إشعار التحديث يظهر لو عندك نسخة قديمة — مش لو أنت على آخر إصدار"
+  "versionCode": 6,
+  "versionName": "1.0.5",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v1.0.5/lammah.apk",
+  "notes": "إصلاح كشف تطبيق APK + المايك الأصلي + Excel"
 }
