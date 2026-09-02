@@ -90,6 +90,7 @@
     const onTranscript = handlers.onTranscript || function () {};
     const onPlate = handlers.onPlate || function () {};
     const onError = handlers.onError || function () {};
+    const onSpeechActivity = handlers.onSpeechActivity || function () {};
 
     let ws = null;
     let audioContext = null;
@@ -223,8 +224,26 @@
       source = audioContext.createMediaStreamSource(mediaStream);
       const inputRate = audioContext.sampleRate || 48000;
 
+      let lastActivityTime = 0;
       const onAudioFloat = (float32) => {
         if (!running || !setupDone || sendingPaused) return;
+        if (float32 && float32.length) {
+          let sum = 0;
+          const step = Math.max(1, Math.floor(float32.length / 32));
+          let count = 0;
+          for (let i = 0; i < float32.length; i += step) {
+            sum += Math.abs(float32[i]);
+            count++;
+          }
+          const avg = count > 0 ? sum / count : 0;
+          if (avg > 0.02) {
+            const now = Date.now();
+            if (now - lastActivityTime > 250) {
+              lastActivityTime = now;
+              try { onSpeechActivity(); } catch (e) {}
+            }
+          }
+        }
         queuePcm(downsampleTo16k(float32, inputRate));
       };
 

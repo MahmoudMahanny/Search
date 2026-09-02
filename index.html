@@ -1407,6 +1407,16 @@
   let nativeListenersReady = false;
   let geminiSession = null;
   let geminiInputBuffer = '';
+  let readyToClearOnNextVoice = false;
+
+  function onNewVoiceDetected() {
+    if (readyToClearOnNextVoice) {
+      readyToClearOnNextVoice = false;
+      clearPlateFields();
+      resetVoiceBuffer();
+      if (micOpen) setListeningStatus(voiceOpenHint(), 'listening-text');
+    }
+  }
   const micLabel = document.getElementById('micLabel');
   const micLiveBanner = document.getElementById('micLiveBanner');
   const micLiveText = document.getElementById('micLiveText');
@@ -1488,42 +1498,30 @@
     const display = formatPlateSpeechDisplay(parsed);
     const found = renderResults(rawText || parsed.token);
 
-    // Never stop/restart the mic on match — stay listening the whole time
-    // the user left the mic open. Only block re-firing the same plate briefly.
+    readyToClearOnNextVoice = true;
+    geminiInputBuffer = '';
+    finalTranscriptBuffer = '';
+
+    // Allow re-searching the same plate if spoken again later
     clearTimeout(restartTimer);
     restartTimer = setTimeout(() => {
       if (lastSearchedToken === parsed.token) lastSearchedToken = '';
-    }, 2200);
+    }, 1800);
 
     if (found) {
       setListeningStatus('✅ سمعت: ' + display + ' — المايك لسه شغال', 'ok-text');
       if (micLiveText) micLiveText.textContent = 'المايك شغال الآن — استماع مستمر';
       setMicUi(true);
-      clearTimeout(idleResetTimer);
-      idleResetTimer = setTimeout(() => {
-        if (!micOpen) return;
-        clearPlateFields();
-        geminiInputBuffer = '';
-        finalTranscriptBuffer = '';
-        setListeningStatus(voiceOpenHint(), 'listening-text');
-      }, 900);
     } else {
       setListeningStatus('🔁 سمعت: ' + display + ' — مفيش تطابق تام، قول تاني', 'listening-text');
       setMicUi(true);
-      clearTimeout(idleResetTimer);
-      idleResetTimer = setTimeout(() => {
-        if (!micOpen) return;
-        clearPlateFields();
-        geminiInputBuffer = '';
-        finalTranscriptBuffer = '';
-        setListeningStatus(voiceOpenHint(), 'listening-text');
-      }, 500);
     }
     return true;
   }
 
   function processTranscriptCandidates(candidates) {
     if (!micOpen) return;
+    onNewVoiceDetected();
     const best = pickBestTranscript(candidates.filter(Boolean));
     if (best.text) finalTranscriptBuffer = best.text;
     setPlateFields(best.parsed);
@@ -1605,10 +1603,15 @@
           setListeningStatus(voiceOpenHint(), 'listening-text');
         }
       },
+      onSpeechActivity: () => {
+        if (!micOpen) return;
+        onNewVoiceDetected();
+      },
       onTranscript: (text, isFinalish) => {
         if (!micOpen) return;
         const t = String(text || '').trim();
         if (!t) return;
+        onNewVoiceDetected();
         // Live stream transcription
         if (!isFinalish) {
           if (t.length >= geminiInputBuffer.length && t.startsWith(geminiInputBuffer.slice(0, Math.min(12, geminiInputBuffer.length)))) {
@@ -1625,6 +1628,7 @@
       },
       onPlate: (plate) => {
         if (!micOpen) return;
+        onNewVoiceDetected();
         const parsed = normalizePlateParts(plate.letters, plate.digits);
         if (parsed.letters.length === 3 && parsed.digits.length === 4) {
           // Instant direct DB check as soon as Gemini fires tool
@@ -1689,8 +1693,6 @@
 
     async function startWebListening() {
       if (!micOpen || pauseListeningForAlarm) return;
-      // Don't preflight getUserMedia — it hangs on some Android WebViews.
-      // SpeechRecognition.start() requests mic itself; onerror handles denial.
       try {
         recognition.start();
       } catch (e) {
@@ -1703,11 +1705,19 @@
     };
     voiceStartEngine = () => { startWebListening(); };
 
+    recognition.onspeechstart = () => {
+      onNewVoiceDetected();
+    };
+    recognition.onsoundstart = () => {
+      onNewVoiceDetected();
+    };
+
     recognition.onstart = () => {
       setMicUi(true);
       if (!pauseListeningForAlarm) setListeningStatus(voiceOpenHint(), 'listening-text');
     };
     recognition.onresult = (event) => {
+      onNewVoiceDetected();
       const finalParts = [];
       let interimText = '';
       for (let i = 0; i < event.results.length; i++) {
@@ -1768,9 +1778,11 @@
     async function ensureNativeListeners() {
       if (nativeListenersReady) return;
       await nativeSpeech.addListener('partialResults', (event) => {
+        onNewVoiceDetected();
         processTranscriptCandidates(event.matches || []);
       });
       await nativeSpeech.addListener('segmentResults', (event) => {
+        onNewVoiceDetected();
         processTranscriptCandidates(event.matches || []);
       });
       await nativeSpeech.addListener('listeningState', (event) => {
@@ -1858,6 +1870,8 @@
         micOpen = true;
         pauseListeningForAlarm = false;
         softRestarting = false;
+        readyToClearOnNextVoice = false;
+        clearPlateFields();
         resetVoiceBuffer();
         geminiInputBuffer = '';
         setListeningStatus('🎙️ جارٍ تجهيز المايك...', 'listening-text');
@@ -1882,6 +1896,8 @@
       micOpen = true;
       pauseListeningForAlarm = false;
       softRestarting = false;
+      readyToClearOnNextVoice = false;
+      clearPlateFields();
       resetVoiceBuffer();
       setListeningStatus(voiceOpenHint(), 'listening-text');
       // Fire-and-forget so a hung start never freezes the button forever.
@@ -1909,6 +1925,8 @@
       micOpen = true;
       pauseListeningForAlarm = false;
       softRestarting = false;
+      readyToClearOnNextVoice = false;
+      clearPlateFields();
       resetVoiceBuffer();
       setListeningStatus(voiceOpenHint(), 'listening-text');
       Promise.resolve(voiceStartEngine()).catch(() => {});
