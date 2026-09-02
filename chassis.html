@@ -439,33 +439,29 @@
  
   function renderResults(query) {
     const token = normalizeText(query);
-    if (!token) { renderEmpty(); return; }
- 
+    if (!token) { renderEmpty(); return false; }
+
     const exact = [];
-    const partial = [];
     for (const row of normDB) {
       if (row.normChassis === token) exact.push(row);
-      else if (row.normChassis.includes(token)) partial.push(row);
     }
- 
-    let list = exact.length ? exact : partial.slice(0, 30);
+
     const seen = new Set();
-    list = list.filter(r => {
+    const list = exact.filter(r => {
       const key = r.plate + '|' + r.chassis + '|' + r.bank;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
- 
+
     if (list.length === 0) {
-      resultsEl.innerHTML = '<div class="no-results">⚠️ مفيش نتيجة مطابقة لـ «' + escapeHtml(query) + '»</div>';
-      return;
+      resultsEl.innerHTML = '<div class="no-results">⚠️ مفيش تطابق تام لـ «' + escapeHtml(query) + '»<br>التطابق لازم يكون تام — مش أقرب نتيجة</div>';
+      return false;
     }
- 
-    const isExact = exact.length > 0;
-    let html = '<div class="count-badge">' + (isExact ? '✅ تطابق تام' : '🔎 نتائج قريبة') + ' — ' + list.length + ' نتيجة</div>';
+
+    let html = '<div class="count-badge">✅ تطابق تام — ' + list.length + ' نتيجة</div>';
     for (const r of list) {
-      html += '<div class="result-card ' + (isExact ? 'exact' : '') + '">';
+      html += '<div class="result-card exact">';
       html += '<div class="plate-num">' + escapeHtml(r.plate) + '</div>';
       if (r.type) html += fieldRow('النوع', r.type);
       if (r.bank) html += fieldRow('البنك', r.bank);
@@ -473,16 +469,15 @@
       html += '</div>';
     }
     resultsEl.innerHTML = html;
- 
-    if (isExact) {
-      vibrateFound();
-      for (const r of exact) {
-        addHistoryEntry({
-          plate: r.plate, type: r.type, bank: r.bank, chassis: r.chassis,
-          matchedBy: 'chassis', searchedAt: new Date().toISOString()
-        }).catch(() => {});
-      }
+
+    vibrateFound(5000);
+    for (const r of list) {
+      addHistoryEntry({
+        plate: r.plate, type: r.type, bank: r.bank, chassis: r.chassis,
+        matchedBy: 'chassis', searchedAt: new Date().toISOString()
+      }).catch(() => {});
     }
+    return true;
   }
  
   let debounceTimer = null;

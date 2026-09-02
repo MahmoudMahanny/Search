@@ -158,8 +158,66 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function vibrateFound() {
-  if (navigator.vibrate) {
-    try { navigator.vibrate(10000); } catch (e) { /* ignore */ }
+let _alarmCtx = null;
+let _alarmStopTimer = null;
+
+function stopAlarm() {
+  clearTimeout(_alarmStopTimer);
+  _alarmStopTimer = null;
+  if (_alarmCtx) {
+    try { _alarmCtx.close(); } catch (e) { /* ignore */ }
+    _alarmCtx = null;
   }
+  if (navigator.vibrate) {
+    try { navigator.vibrate(0); } catch (e) { /* ignore */ }
+  }
+}
+
+// 5-second vibrating siren when an exact plate/chassis match is found.
+function vibrateFound(durationMs) {
+  const ms = typeof durationMs === 'number' ? durationMs : 5000;
+  stopAlarm();
+
+  if (navigator.vibrate) {
+    try {
+      const pulse = [];
+      for (let t = 0; t < ms; t += 400) {
+        pulse.push(280, 120);
+      }
+      navigator.vibrate(pulse);
+    } catch (e) { /* ignore */ }
+  }
+
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    _alarmCtx = ctx;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.22;
+    gain.connect(ctx.destination);
+
+    const osc = ctx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.value = 880;
+    osc.connect(gain);
+    osc.start();
+
+    const start = ctx.currentTime;
+    const end = start + ms / 1000;
+    let t = start;
+    while (t < end) {
+      osc.frequency.setValueAtTime(880, t);
+      osc.frequency.setValueAtTime(1175, t + 0.18);
+      t += 0.36;
+    }
+    gain.gain.setValueAtTime(0.22, start);
+    gain.gain.setValueAtTime(0.22, end - 0.05);
+    gain.gain.linearRampToValueAtTime(0.0001, end);
+
+    _alarmStopTimer = setTimeout(() => {
+      try { osc.stop(); } catch (e) { /* ignore */ }
+      stopAlarm();
+    }, ms + 50);
+  } catch (e) { /* ignore audio failures */ }
 }

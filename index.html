@@ -373,7 +373,7 @@
     color: var(--good);
   }
 
-  #confirmOverlay {
+  #confirmOverlay, #matchOverlay {
     position: fixed;
     inset: 0;
     background: rgba(0,0,0,0.85);
@@ -383,14 +383,51 @@
     justify-content: center;
     padding: 20px;
   }
-  #confirmOverlay.active { display: flex; }
-  #confirmBox {
+  #confirmOverlay.active, #matchOverlay.active { display: flex; }
+  #confirmBox, #matchBox {
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 22px 18px;
     max-width: 360px;
     width: 100%;
+  }
+  #matchBox {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-dim);
+    animation: matchPulse 0.9s ease-in-out infinite;
+  }
+  @keyframes matchPulse {
+    0%, 100% { box-shadow: 0 0 0 2px var(--accent-dim); }
+    50% { box-shadow: 0 0 0 8px rgba(212,175,55,0.18); }
+  }
+  #matchTitle {
+    text-align: center;
+    color: var(--good);
+    font-weight: 800;
+    font-size: 16px;
+    margin-bottom: 10px;
+  }
+  #matchPlate {
+    text-align: center;
+    font-size: 30px;
+    font-weight: 800;
+    color: var(--accent);
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+    direction: rtl;
+  }
+  #matchDetails { margin-bottom: 16px; }
+  #matchClose {
+    width: 100%;
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    background: var(--accent);
+    color: #14140f;
+    font-weight: 800;
+    font-size: 15px;
+    cursor: pointer;
   }
   #confirmMessage {
     text-align: center;
@@ -585,6 +622,15 @@
         <button id="confirmCancel">إلغاء</button>
         <button id="confirmOk">نعم، امسح ✅</button>
       </div>
+    </div>
+  </div>
+
+  <div id="matchOverlay" role="dialog" aria-modal="true" aria-labelledby="matchTitle">
+    <div id="matchBox">
+      <div id="matchTitle">✅ تم العثور على اللوحة</div>
+      <div id="matchPlate"></div>
+      <div id="matchDetails"></div>
+      <button type="button" id="matchClose">إغلاق</button>
     </div>
   </div>
 </div>
@@ -922,11 +968,7 @@
   }
 
   function transcriptToPlateToken(text) {
-    return refinePlateWithDB(parseSaudiPlateSpeech(text)).token;
-  }
-
-  function lettersFromNormPlate(normPlate) {
-    return normPlate.replace(/\d/g, '');
+    return parseSaudiPlateSpeech(text).token;
   }
 
   function scorePlateCandidate(parsed) {
@@ -935,53 +977,17 @@
     else score += parsed.letters.length * 4;
     if (parsed.digits.length === 4) score += 20;
     else score += parsed.digits.length * 4;
-    if (parsed.token && normDB.some(r => r.normPlate === parsed.token)) score += 100;
-    else if (parsed.letters.length === 3 && parsed.digits.length === 4) {
-      const sameDigits = normDB.filter(r => extractDigitsFromNormPlate(r.normPlate) === parsed.digits);
-      if (sameDigits.length === 1) score += 60;
-      else if (sameDigits.length > 0) {
-        let bestDist = 99;
-        for (const r of sameDigits) {
-          const dbLetters = lettersFromNormPlate(r.normPlate);
-          let dist = 0;
-          for (let i = 0; i < 3; i++) if (dbLetters[i] !== parsed.letters[i]) dist++;
-          if (dist < bestDist) bestDist = dist;
-        }
-        if (bestDist <= 1) score += 45;
-        else if (bestDist === 2) score += 25;
-      }
-    } else if (parsed.letters.length === 3 && normDB.some(r => r.normPlate.startsWith(parsed.letters))) {
-      score += 15;
+    // Only boost exact DB hits — never reward "close" letter/digit matches.
+    if (parsed.token && parsed.letters.length === 3 && parsed.digits.length === 4 &&
+        normDB.some(r => r.normPlate === parsed.token)) {
+      score += 100;
     }
     return score;
   }
 
-  // When digits are clear but OCR/voice garbled a letter, snap to the closest
-  // plate in the DB that shares those digits (within 1–2 letter edits).
+  // Exact DB hit only — do not snap to a nearby plate.
   function refinePlateWithDB(parsed) {
-    if (!parsed || parsed.letters.length < 2 || parsed.digits.length < 3) return parsed;
-    if (parsed.token && normDB.some(r => r.normPlate === parsed.token)) return parsed;
-
-    const digits = parsed.digits.length === 4
-      ? parsed.digits
-      : parsed.digits.padStart(4, '0').slice(-4);
-    const candidates = normDB.filter(r => extractDigitsFromNormPlate(r.normPlate) === digits);
-    if (!candidates.length) return parsed;
-
-    let best = parsed;
-    let bestDist = 99;
-    for (const row of candidates) {
-      const dbLetters = lettersFromNormPlate(row.normPlate);
-      if (dbLetters.length !== 3) continue;
-      let dist = 0;
-      const spoken = parsed.letters.padEnd(3, ' ').slice(0, 3);
-      for (let i = 0; i < 3; i++) if (dbLetters[i] !== spoken[i]) dist++;
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = { letters: dbLetters, digits, token: row.normPlate };
-      }
-    }
-    return bestDist <= 2 ? best : parsed;
+    return parsed || { letters: '', digits: '', token: '' };
   }
 
   function pickBestTranscript(candidates) {
@@ -990,7 +996,7 @@
     let bestParsed = { letters: '', digits: '', token: '' };
     for (const text of candidates) {
       if (!text || !String(text).trim()) continue;
-      const parsed = refinePlateWithDB(parseSaudiPlateSpeech(text));
+      const parsed = parseSaudiPlateSpeech(text);
       const score = scorePlateCandidate(parsed);
       if (score > bestScore) {
         bestScore = score;
@@ -1002,24 +1008,24 @@
   }
 
   // OCR often splits Arabic letters and digits across lines or adds noise —
-  // try several extractions and keep the one that best matches a real plate.
+  // try several extractions and keep the one that best forms a complete plate.
   function parseOCRPlateText(text) {
     const cleaned = stripBidiMarks(normalizeDigits(stripTashkeel(text || '')))
       .replace(/[A-Za-z]{2,}/g, ' ')
       .replace(/[^\u0621-\u064A0-9\s\n|]/g, ' ');
 
-    let best = refinePlateWithDB(parseSaudiPlateSpeech(cleaned));
+    let best = parseSaudiPlateSpeech(cleaned);
     let bestScore = scorePlateCandidate(best);
 
     const tryCandidate = (letters, digits) => {
       const normalizedLetters = normalizeArabicLetters(letters).toLowerCase().slice(0, 3);
       const normalizedDigits = String(digits).replace(/\D/g, '').slice(0, 4);
       if (normalizedLetters.length < 2 || normalizedDigits.length < 3) return;
-      const candidate = refinePlateWithDB({
+      const candidate = {
         letters: normalizedLetters,
         digits: normalizedDigits,
         token: normalizedLetters + normalizedDigits
-      });
+      };
       const score = scorePlateCandidate(candidate);
       if (score > bestScore) {
         best = candidate;
@@ -1028,7 +1034,8 @@
     };
 
     for (const glued of cleaned.match(/[\u0621-\u064A]{2,4}\d{3,4}|\d{3,4}[\u0621-\u064A]{2,4}/g) || []) {
-      tryCandidate(parseSaudiPlateSpeech(glued).letters, parseSaudiPlateSpeech(glued).digits);
+      const p = parseSaudiPlateSpeech(glued);
+      tryCandidate(p.letters, p.digits);
     }
 
     const letterRuns = cleaned.match(/[\u0621-\u064A]{2,4}/g) || [];
@@ -1040,7 +1047,7 @@
     }
 
     for (const line of cleaned.split(/\n+/)) {
-      const lineParsed = refinePlateWithDB(parseSaudiPlateSpeech(line));
+      const lineParsed = parseSaudiPlateSpeech(line);
       const score = scorePlateCandidate(lineParsed);
       if (score > bestScore) {
         best = lineParsed;
@@ -1078,36 +1085,71 @@
 
   // Pick the STT alternative most likely to be a valid Saudi plate.
   function scorePlateTranscript(text) {
-    return scorePlateCandidate(refinePlateWithDB(parseSaudiPlateSpeech(text)));
+    return scorePlateCandidate(parseSaudiPlateSpeech(text));
   }
 
   function renderEmpty() {
     resultsEl.innerHTML = '<div class="empty-state">اكتب أو قول ٣ حروف ثم ٤ أرقام — الأرقام من الشمال لليمين<br>مثال: «رمق» ثم «6543» أو «ستة خمسة أربعة ثلاثة»</div>';
   }
 
+  const matchOverlay = document.getElementById('matchOverlay');
+  const matchPlateEl = document.getElementById('matchPlate');
+  const matchDetailsEl = document.getElementById('matchDetails');
+  const matchCloseBtn = document.getElementById('matchClose');
+
+  function closeMatchPopup() {
+    matchOverlay.classList.remove('active');
+    if (typeof stopAlarm === 'function') stopAlarm();
+  }
+
+  function showMatchPopup(records) {
+    if (!records || !records.length) return;
+    const primary = records[0];
+    matchPlateEl.textContent = primary.plate || '';
+    let details = '';
+    if (primary.type) details += fieldRow('النوع', primary.type);
+    if (primary.bank) details += fieldRow('البنك', primary.bank);
+    if (primary.chassis) details += fieldRow('الهيكل', primary.chassis);
+    if (records.length > 1) {
+      details += '<div class="field-row"><span class="field-label">سجلات</span><span class="field-value">' +
+        records.length + ' تطابق تام</span></div>';
+    }
+    matchDetailsEl.innerHTML = details;
+    matchOverlay.classList.add('active');
+  }
+
+  matchCloseBtn.addEventListener('click', closeMatchPopup);
+  matchOverlay.addEventListener('click', (e) => {
+    if (e.target === matchOverlay) closeMatchPopup();
+  });
+
+  function announceExactMatch(records) {
+    vibrateFound(5000);
+    showMatchPopup(records);
+  }
+
   function renderResults(query) {
-    const parsed = refinePlateWithDB(parseSaudiPlateSpeech(query));
+    const parsed = parseSaudiPlateSpeech(query);
     const token = parsed.token;
-    if (!token) { renderEmpty(); return false; }
     setPlateFields(parsed);
 
-    const exact = [];
-    const partial = [];
-
-    for (const row of normDB) {
-      if (row.normPlate === token) {
-        exact.push(row);
-      } else if (row.normPlate.includes(token) || token.includes(row.normPlate)) {
-        partial.push(row);
+    // Strict exact match only: full 3 letters + 4 digits, or nothing.
+    if (parsed.letters.length !== 3 || parsed.digits.length !== 4 || !token) {
+      if (!parsed.letters && !parsed.digits) {
+        renderEmpty();
+      } else {
+        resultsEl.innerHTML = '<div class="empty-state">كمّل ٣ حروف و ٤ أرقام للبحث — التطابق لازم يكون تام</div>';
       }
+      return false;
     }
 
-    // If exact matches found, show only those (deduped by plate+chassis)
-    let list = exact.length ? exact : partial.slice(0, 30);
+    const exact = [];
+    for (const row of normDB) {
+      if (row.normPlate === token) exact.push(row);
+    }
 
-    // Dedup
     const seen = new Set();
-    list = list.filter(r => {
+    const list = exact.filter(r => {
       const key = r.plate + '|' + r.chassis + '|' + r.bank;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -1115,15 +1157,14 @@
     });
 
     if (list.length === 0) {
-      resultsEl.innerHTML = '<div class="no-results">⚠️ مفيش نتيجة مطابقة لـ «' + query + '»<br>جرب تتأكد من الحروف أو الأرقام</div>';
+      const label = formatPlateSpeechDisplay(parsed) || query;
+      resultsEl.innerHTML = '<div class="no-results">⚠️ مفيش لوحة مطابقة بالظبط لـ «' + escapeHtml(label) + '»<br>التطابق لازم يكون تام — مش أقرب نتيجة</div>';
       return false;
     }
 
-    const isExact = exact.length > 0;
-    let html = '<div class="count-badge">' + (isExact ? '✅ تطابق تام' : '🔎 نتائج قريبة') + ' — ' + list.length + ' نتيجة</div>';
-
+    let html = '<div class="count-badge">✅ تطابق تام — ' + list.length + ' نتيجة</div>';
     for (const r of list) {
-      html += '<div class="result-card ' + (isExact ? 'exact' : '') + '">';
+      html += '<div class="result-card exact">';
       html += '<div class="plate-num">' + escapeHtml(r.plate) + '</div>';
       if (r.type) html += fieldRow('النوع', r.type);
       if (r.bank) html += fieldRow('البنك', r.bank);
@@ -1132,52 +1173,13 @@
     }
     resultsEl.innerHTML = html;
 
-    if (isExact) {
-      vibrateFound();
-      // Log each exact match to the search history (best-effort; never blocks the UI)
-      for (const r of exact) {
-        addHistoryEntry({
-          plate: r.plate, type: r.type, bank: r.bank, chassis: r.chassis,
-          matchedBy: 'plate', searchedAt: new Date().toISOString()
-        }).catch(() => {});
-      }
-    }
-    return isExact;
-  }
-
-  function extractDigitsFromNormPlate(normPlate) {
-    const m = normPlate.match(/\d+/);
-    return m ? m[0] : '';
-  }
-
-  // Fallback used when OCR (or a very partial voice/typed query) can't
-  // confidently make out the 3 Arabic letters but the 4 digits are clear —
-  // still show every plate that has that exact digit sequence, regardless
-  // of its letters, rather than giving up with "no results".
-  function renderResultsByDigitsOnly(digits) {
-    if (!digits) return false;
-    const matches = normDB.filter(r => extractDigitsFromNormPlate(r.normPlate) === digits);
-    const seen = new Set();
-    const list = matches.filter(r => {
-      const key = r.plate + '|' + r.chassis + '|' + r.bank;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    if (list.length === 0) return false;
-
-    let html = '<div class="count-badge">🔢 الحروف مش واضحة — نتائج بالأرقام (' + digits + ') فقط — ' + list.length + ' نتيجة</div>';
+    announceExactMatch(list);
     for (const r of list) {
-      html += '<div class="result-card">';
-      html += '<div class="plate-num">' + escapeHtml(r.plate) + '</div>';
-      if (r.type) html += fieldRow('النوع', r.type);
-      if (r.bank) html += fieldRow('البنك', r.bank);
-      if (r.chassis) html += fieldRow('الهيكل', r.chassis);
-      html += '</div>';
+      addHistoryEntry({
+        plate: r.plate, type: r.type, bank: r.bank, chassis: r.chassis,
+        matchedBy: 'plate', searchedAt: new Date().toISOString()
+      }).catch(() => {});
     }
-    resultsEl.innerHTML = html;
-    // Only one possible plate for these digits — confident enough to vibrate.
-    if (list.length === 1) vibrateFound();
     return true;
   }
 
@@ -1185,7 +1187,7 @@
     return '<div class="field-row"><span class="field-label">' + label + '</span><span class="field-value">' + escapeHtml(String(value)) + '</span></div>';
   }
 
-  // vibrateFound() and escapeHtml() are provided globally by db.js.
+  // vibrateFound() / stopAlarm() and escapeHtml() are provided globally by db.js.
 
   let debounceTimer = null;
   function handlePlateFieldInput() {
@@ -1196,7 +1198,7 @@
       renderEmpty();
       return;
     }
-    const parsed = refinePlateWithDB(parseSaudiPlateSpeech(rawCombined));
+    const parsed = parseSaudiPlateSpeech(rawCombined);
     setPlateFields(parsed);
     debounceTimer = setTimeout(() => renderResults(rawCombined), 150);
   }
@@ -1206,6 +1208,7 @@
 
   clearBtn.addEventListener('click', () => {
     clearPlateFields();
+    closeMatchPopup();
     renderEmpty();
     statusLine.textContent = '';
     statusLine.className = 'status-line';
@@ -1255,8 +1258,8 @@
     }
 
     function maybeStopEarly(parsed, score) {
-      if (parsed.letters.length === 3 && parsed.digits.length === 4 &&
-          (score >= 100 || score >= 60)) {
+      // Only stop early on a confirmed exact DB hit (score includes +100).
+      if (parsed.letters.length === 3 && parsed.digits.length === 4 && score >= 100) {
         stoppingForSearch = true;
         clearTimeout(micTimeout);
         try { recognition.stop(); } catch (e) {}
@@ -1313,7 +1316,7 @@
         clearPlateFields();
         return;
       }
-      const parsed = refinePlateWithDB(parseSaudiPlateSpeech(transcript));
+      const parsed = parseSaudiPlateSpeech(transcript);
       if (parsed.letters.length < 3) {
         statusLine.textContent = '⚠️ محتاج ٣ حروف — قول الحروف الأول (مثال: عبق أو عين باء قاف)';
         statusLine.className = 'status-line listening-text';
@@ -1327,12 +1330,8 @@
         statusLine.textContent = '✅ سمعت: ' + display;
         statusLine.className = 'status-line ok-text';
         continuousMode = false;
-      } else if (parsed.digits.length === 4 && renderResultsByDigitsOnly(parsed.digits)) {
-        statusLine.textContent = '🔢 سمعت: ' + display + ' — مفيش تطابق تام، دي نتائج الأرقام بس';
-        statusLine.className = 'status-line listening-text';
-        continuousMode = false;
       } else {
-        statusLine.textContent = '🔁 سمعت: ' + display + ' — مفيش نتيجة، اتكلم تاني';
+        statusLine.textContent = '🔁 سمعت: ' + display + ' — مفيش تطابق تام، اتكلم تاني';
         statusLine.className = 'status-line listening-text';
         clearPlateFields();
       }
@@ -1693,12 +1692,9 @@
       if (found) {
         statusLine.textContent = '✅ قريت: ' + display;
         statusLine.className = 'status-line ok-text';
-      } else if (parsed.digits.length >= 3 && renderResultsByDigitsOnly(parsed.digits)) {
-        statusLine.textContent = '⚠️ قريت الأرقام (' + parsed.digits + ') بس مش متأكد من الحروف — دي النتائج المطابقة للأرقام، تأكد من الحروف يدويًا';
-        statusLine.className = 'status-line listening-text';
       } else {
-        statusLine.textContent = '✅ قريت: ' + display + ' — راجع الحروف لو محتاج';
-        statusLine.className = 'status-line ok-text';
+        statusLine.textContent = '⚠️ قريت: ' + display + ' — مفيش تطابق تام في القاعدة';
+        statusLine.className = 'status-line listening-text';
       }
     } catch (err) {
       statusLine.textContent = '⚠️ خطأ في قراءة الصورة: ' + (err.message || err);
