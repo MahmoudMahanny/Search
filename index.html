@@ -1414,6 +1414,7 @@
       readyToClearOnNextVoice = false;
       clearPlateFields();
       resetVoiceBuffer();
+      renderResults('');
       if (micOpen) setListeningStatus(voiceOpenHint(), 'listening-text');
     }
   }
