@@ -13,6 +13,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
 <style>
   :root {
     --bg: #071a12;
@@ -353,9 +355,10 @@
 </div>
 
 <nav class="bottom-nav">
-  <a href="index.html" class="nav-link"><span class="nav-icon">🔍</span>بحث باللوحة</a>
-  <a href="chassis.html" class="nav-link active"><span class="nav-icon">🔧</span>بحث بالهيكل</a>
-  <a href="history.html" class="nav-link"><span class="nav-icon">📋</span>السجل</a>
+  <a href="index.html" class="nav-link"><span class="nav-icon">🔍</span>لوحة</a>
+  <a href="chassis.html" class="nav-link active"><span class="nav-icon">🔧</span>هيكل</a>
+  <a href="history.html" class="nav-link"><span class="nav-icon">📋</span>سجل</a>
+  <a href="settings.html" class="nav-link"><span class="nav-icon">⚙️</span>إعدادات</a>
 </nav>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
@@ -381,7 +384,9 @@
  
   let rawRecords = [];
   try {
-    rawRecords = await ensureBaseRecordsSeeded();
+    rawRecords = await ensureBaseRecordsSeeded((msg) => {
+      dbCountEl.textContent = msg || 'جارٍ تحميل قاعدة البيانات...';
+    });
     dbCountEl.textContent = '';
   } catch (err) {
     dbCountEl.textContent = '⚠️ تعذر تحميل قاعدة البيانات (' + err.message + ')';

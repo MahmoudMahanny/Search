@@ -1,0 +1,27 @@
+/* Shared CSS variables for day/night — include after :root dark defaults */
+html[data-theme="light"] {
+  --bg: #f4f7f5;
+  --panel: #ffffff;
+  --panel-2: #eef3f0;
+  --border: #c5d5cb;
+  --text: #12241a;
+  --muted: #5a7364;
+  --accent: #9a7b1a;
+  --accent-dim: #7a6215;
+  --good: #2f8f5b;
+  --danger: #c43c3c;
+}
+html[data-theme="light"] body {
+  background:
+    radial-gradient(ellipse 90% 50% at 50% -10%, rgba(212,175,55,0.12), transparent 55%),
+    var(--bg);
+}
+html[data-theme="light"] .plate-frame {
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12), inset 0 0 0 1px rgba(255,255,255,0.6);
+}
+html[data-theme="light"] .bottom-nav {
+  background: rgba(255,255,255,0.92);
+}
+html[data-theme="light"] .update-banner {
+  background: linear-gradient(180deg, #e8f2eb, #ffffff);
+}

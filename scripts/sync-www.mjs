@@ -15,12 +15,14 @@ const files = [
   'index.html',
   'chassis.html',
   'history.html',
+  'settings.html',
   'db.js',
-  'data.json',
-  'android-version.json'
+  'theme.js',
+  'theme.css',
+  'data.json'
 ];
 
-const optional = ['plates.txt.gz'];
+const optional = ['plates.txt.gz', 'android-version.json'];
 
 rmSync(www, { recursive: true, force: true });
 mkdirSync(www, { recursive: true });

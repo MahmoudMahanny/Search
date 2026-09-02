@@ -58,16 +58,26 @@ async function getAllRecords() {
   });
 }
 
-async function putRecords(records) {
+async function putRecords(records, onProgress) {
   if (!records || !records.length) return;
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_RECORDS, 'readwrite');
-    const store = tx.objectStore(STORE_RECORDS);
-    records.forEach(r => store.put(r));
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  const CHUNK = 800;
+  for (let i = 0; i < records.length; i += CHUNK) {
+    const slice = records.slice(i, i + CHUNK);
+    const db = await openDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_RECORDS, 'readwrite');
+      const store = tx.objectStore(STORE_RECORDS);
+      for (let j = 0; j < slice.length; j++) store.put(slice[j]);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('IndexedDB abort'));
+    });
+    if (typeof onProgress === 'function') {
+      onProgress(Math.min(records.length, i + slice.length), records.length);
+    }
+    // Yield so the UI can paint between chunks.
+    await new Promise(r => setTimeout(r, 0));
+  }
 }
 
 async function clearAllRecords() {
@@ -281,13 +291,14 @@ async function loadRecordsFromPlatesGz() {
   });
 }
 
-async function loadBaseRecordsFromAssets() {
-  const attempts = isCapacitorNative()
+async function loadBaseRecordsFromAssets(onStatus) {
+  const attempts = isCapacitorNative() || (typeof window !== 'undefined' && window.__LAMMAH_APP_SHELL__)
     ? [loadRecordsFromDataJson, loadRecordsFromPlatesGz]
     : [loadRecordsFromPlatesGz, loadRecordsFromDataJson];
   const errors = [];
   for (const loader of attempts) {
     try {
+      if (typeof onStatus === 'function') onStatus('جارٍ قراءة ملف البيانات...');
       return await loader();
     } catch (err) {
       errors.push(err.message || String(err));
@@ -296,11 +307,25 @@ async function loadBaseRecordsFromAssets() {
   throw new Error(errors.join(' | '));
 }
 
-async function ensureBaseRecordsSeeded() {
+async function ensureBaseRecordsSeeded(onStatus) {
+  const report = (msg) => {
+    if (typeof onStatus === 'function') onStatus(msg);
+  };
+  report('جارٍ فتح قاعدة البيانات المحلية...');
   const alreadySeeded = await getMeta('seeded');
-  if (alreadySeeded) return getAllRecords();
-  const seeded = await loadBaseRecordsFromAssets();
-  await putRecords(seeded);
+  if (alreadySeeded) {
+    report('جارٍ قراءة السجلات المحفوظة...');
+    return getAllRecords();
+  }
+  const seeded = await loadBaseRecordsFromAssets(report);
+  report('جارٍ حفظ ' + seeded.length.toLocaleString('ar-EG') + ' سجل...');
+  await putRecords(seeded, (done, total) => {
+    const pct = Math.round((done / total) * 100);
+    report('جارٍ الحفظ ' + pct + '% (' + done.toLocaleString('ar-EG') + ')');
+  });
   await setMeta('seeded', true);
   return seeded;
 }
+
+const APP_VERSION = '0.1.7';
+const APP_VERSION_CODE = 8;

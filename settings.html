@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="لمّاح">
+<meta name="theme-color" content="#071a12">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230e2b1c'/%3E%3Cpath d='M12 34c7-13 33-13 40 0-7 13-33 13-40 0Z' fill='%23d4af37'/%3E%3Ccircle cx='32' cy='34' r='7' fill='%230e2b1c'/%3E%3C/svg%3E">
+<title>لمّاح — الإعدادات</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+<style>
+  :root {
+    --bg: #071a12;
+    --panel: #0e2b1c;
+    --panel-2: #123423;
+    --border: #1f4a34;
+    --text: #eef4f0;
+    --muted: #8fae9c;
+    --accent: #d4af37;
+    --accent-dim: #8a742a;
+    --good: #4caf7d;
+    --danger: #e05a5a;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Tajawal', 'Segoe UI', Tahoma, Arial, sans-serif;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+  .wrap {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: calc(18px + env(safe-area-inset-top)) 16px calc(88px + env(safe-area-inset-bottom));
+  }
+  header { text-align: center; margin-bottom: 18px; }
+  .brand { display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .brand-logo { width: 46px; height: 46px; }
+  header h1 {
+    font-family: 'Almarai', 'Tajawal', sans-serif;
+    font-size: 28px; font-weight: 800; margin: 0; color: var(--accent);
+  }
+  header p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+  .settings-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+  }
+  .settings-row + .settings-row { border-top: 1px solid var(--border); }
+  .settings-label { font-size: 14px; font-weight: 700; }
+  .settings-hint { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; font-weight: 400; }
+  .theme-toggle {
+    display: flex;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .theme-toggle button {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    padding: 8px 12px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .theme-toggle button.active {
+    background: var(--accent);
+    color: #1a1408;
+  }
+  .version-badge {
+    font-family: 'Almarai', sans-serif;
+    font-weight: 800;
+    color: var(--accent);
+    font-size: 16px;
+  }
+  .bottom-nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    display: flex; gap: 4px;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    background: rgba(14, 43, 28, 0.92);
+    backdrop-filter: blur(14px);
+    border-top: 1px solid var(--border);
+    max-width: 560px; margin: 0 auto;
+  }
+  html[data-theme="light"] .bottom-nav { background: rgba(255,255,255,0.92); }
+  .nav-link {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    text-decoration: none; color: var(--muted); border-radius: 12px; padding: 7px 2px 5px; font-size: 10px;
+  }
+  .nav-link .nav-icon { font-size: 18px; }
+  .nav-link.active { color: var(--accent); background: rgba(212,175,55,0.12); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <svg class="brand-logo" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect x="2" y="2" width="60" height="60" rx="18" fill="#d4af37"/>
+        <path d="M12 34c7-13 33-13 40 0-7 13-33 13-40 0Z" fill="#0e2b1c"/>
+        <circle cx="32" cy="34" r="7.5" fill="#d4af37"/>
+        <circle cx="32" cy="34" r="3" fill="#0e2b1c"/>
+      </svg>
+      <h1>الإعدادات</h1>
+    </div>
+    <p>المظهر ومعلومات النسخة</p>
+  </header>
+
+  <div class="settings-card">
+    <div class="settings-row">
+      <div>
+        <div class="settings-label">المظهر</div>
+        <span class="settings-hint">وضع ليلي أو نهاري لكل الصفحات</span>
+      </div>
+      <div class="theme-toggle" role="group" aria-label="المظهر">
+        <button type="button" id="themeDarkBtn">ليلي</button>
+        <button type="button" id="themeLightBtn">نهاري</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-card">
+    <div class="settings-row">
+      <div>
+        <div class="settings-label">إصدار التطبيق</div>
+        <span class="settings-hint" id="buildHint">رقم البناء</span>
+      </div>
+      <div class="version-badge" id="versionBadge">v0.1.7</div>
+    </div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-label">المنصة</div>
+        <span class="settings-hint">ويب أو تطبيق أندرويد</span>
+      </div>
+      <div id="platformBadge" style="color:var(--muted);font-size:13px;font-weight:700">—</div>
+    </div>
+  </div>
+</div>
+
+<nav class="bottom-nav">
+  <a href="index.html" class="nav-link"><span class="nav-icon">🔍</span>لوحة</a>
+  <a href="chassis.html" class="nav-link"><span class="nav-icon">🔧</span>هيكل</a>
+  <a href="history.html" class="nav-link"><span class="nav-icon">📋</span>سجل</a>
+  <a href="settings.html" class="nav-link active"><span class="nav-icon">⚙️</span>إعدادات</a>
+</nav>
+
+<script src="db.js"></script>
+<script>
+(function () {
+  const darkBtn = document.getElementById('themeDarkBtn');
+  const lightBtn = document.getElementById('themeLightBtn');
+  const versionBadge = document.getElementById('versionBadge');
+  const buildHint = document.getElementById('buildHint');
+  const platformBadge = document.getElementById('platformBadge');
+
+  function syncThemeButtons() {
+    const theme = window.LammahTheme.getTheme();
+    darkBtn.classList.toggle('active', theme === 'dark');
+    lightBtn.classList.toggle('active', theme === 'light');
+  }
+
+  darkBtn.addEventListener('click', () => {
+    window.LammahTheme.applyTheme('dark');
+    syncThemeButtons();
+  });
+  lightBtn.addEventListener('click', () => {
+    window.LammahTheme.applyTheme('light');
+    syncThemeButtons();
+  });
+  syncThemeButtons();
+
+  versionBadge.textContent = 'v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.1.7');
+  buildHint.textContent = 'كود البناء ' + (typeof APP_VERSION_CODE !== 'undefined' ? APP_VERSION_CODE : '8');
+
+  const isApp = !!window.__LAMMAH_APP_SHELL__ ||
+    (window.Capacitor && window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'android');
+  platformBadge.textContent = isApp ? 'تطبيق أندرويد' : 'موقع ويب';
+
+  if (window.Capacitor && window.Capacitor.registerPlugin) {
+    const App = window.Capacitor.registerPlugin('App');
+    App.getInfo().then(info => {
+      if (info && info.version) versionBadge.textContent = 'v' + info.version;
+      if (info && info.build) buildHint.textContent = 'كود البناء ' + info.build;
+      platformBadge.textContent = 'تطبيق أندرويد';
+    }).catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>

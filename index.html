@@ -13,6 +13,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
 <style>
   :root {
     --bg: #071a12;
@@ -100,8 +102,8 @@
     border: none;
     color: var(--muted);
     border-radius: 12px;
-    padding: 7px 4px 5px;
-    font-size: 11px;
+    padding: 7px 2px 5px;
+    font-size: 10px;
     text-decoration: none;
     transition: transform 0.15s ease, color 0.15s ease, background 0.15s ease;
   }
@@ -665,7 +667,7 @@
   </div>
 
   <div id="results" class="results"></div>
-  <div class="footer-note" id="appVersionRow" style="display:none">الإصدار <span id="appVersion"></span></div>
+  <div class="footer-note" id="appVersionRow">الإصدار <span id="appVersion"></span></div>
 
   <div id="cropOverlay">
     <div id="cropCanvasWrap">
@@ -699,9 +701,10 @@
 </div>
 
 <nav class="bottom-nav">
-  <a href="index.html" class="nav-link active"><span class="nav-icon">🔍</span>بحث باللوحة</a>
-  <a href="chassis.html" class="nav-link"><span class="nav-icon">🔧</span>بحث بالهيكل</a>
-  <a href="history.html" class="nav-link"><span class="nav-icon">📋</span>السجل</a>
+  <a href="index.html" class="nav-link active"><span class="nav-icon">🔍</span>لوحة</a>
+  <a href="chassis.html" class="nav-link"><span class="nav-icon">🔧</span>هيكل</a>
+  <a href="history.html" class="nav-link"><span class="nav-icon">📋</span>سجل</a>
+  <a href="settings.html" class="nav-link"><span class="nav-icon">⚙️</span>إعدادات</a>
 </nav>
 
 <script>
@@ -709,10 +712,12 @@
     location.protocol === 'capacitor:' ||
     /android_asset/i.test(location.href);
 </script>
-<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/xlsx.full.min.js" onerror="window.__xlsxNeedCdn=1"></script>
 <script>
-  if (typeof XLSX === 'undefined') {
-    document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>');
+  if (window.__xlsxNeedCdn || typeof XLSX === 'undefined') {
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    document.head.appendChild(s);
   }
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
@@ -740,7 +745,9 @@
   // otherwise fetch bundled assets once and seed IndexedDB with them.
   let rawRecords = [];
   try {
-    rawRecords = await ensureBaseRecordsSeeded();
+    rawRecords = await ensureBaseRecordsSeeded((msg) => {
+      dbCountEl.textContent = msg || 'جارٍ تحميل قاعدة البيانات...';
+    });
     dbCountEl.textContent = '';
   } catch (err) {
     dbCountEl.textContent = '⚠️ تعذر تحميل قاعدة البيانات (' + err.message + ')';
@@ -2167,9 +2174,8 @@
 
     const localCode = parseInt(localInfo.build, 10) || 0;
     const localVersion = normalizeVersionName(localInfo.version);
-    if (appVersionEl && appVersionRow) {
-      appVersionEl.textContent = localVersion || String(localCode);
-      appVersionRow.style.display = 'block';
+    if (appVersionEl) {
+      appVersionEl.textContent = 'v' + (localVersion || APP_VERSION || String(localCode));
     }
 
     let remote;
@@ -2219,6 +2225,9 @@
 
   if (isCapacitorAndroidHost()) {
     setTimeout(checkAndroidAppUpdate, UPDATE_CHECK_DELAY_MS);
+  } else {
+    const appVersionEl = document.getElementById('appVersion');
+    if (appVersionEl) appVersionEl.textContent = 'v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.1.7');
   }
 
   renderEmpty();

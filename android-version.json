@@ -1,6 +1,6 @@
 {
-  "versionCode": 7,
-  "versionName": "1.0.6",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v1.0.6/lammah.apk",
-  "notes": "إصلاح المايك: يفتح ويقفل أكتر من مرة + يعرض اللي سمعه + نتائج أدق"
+  "versionCode": 8,
+  "versionName": "0.1.7",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.7/lammah.apk",
+  "notes": "إصلاح تحميل قاعدة البيانات + صفحة إعدادات (نسخة / ليلي-نهاري)"
 }
