@@ -592,8 +592,8 @@
       <button id="uploadBtn" class="media-btn" title="رفع صورة">
         <span class="media-icon">🖼️</span><span class="media-label">صورة</span>
       </button>
-      <button id="micBtn" class="media-btn media-btn-primary" title="بحث صوتي">
-        <span class="media-icon">🎤</span><span class="media-label">صوت</span>
+      <button id="micBtn" class="media-btn media-btn-primary" title="استماع مستمر">
+        <span class="media-icon">🎤</span><span class="media-label" id="micLabel">مايك</span>
       </button>
       <input id="camInput" type="file" accept="image/*" capture="environment" style="display:none" />
       <input id="uploadInput" type="file" accept="image/*" style="display:none" />
@@ -1100,6 +1100,7 @@
   function closeMatchPopup() {
     matchOverlay.classList.remove('active');
     if (typeof stopAlarm === 'function') stopAlarm();
+    if (typeof onMatchPopupClosed === 'function') onMatchPopupClosed();
   }
 
   function showMatchPopup(records) {
@@ -1215,29 +1216,42 @@
     lettersInput.focus();
   });
 
-  // ---- Voice recognition ----
-  // Each mic press listens for a fixed 5-second window, then automatically
-  // stops and searches whatever was said. If it's an exact match, the phone
-  // vibrates (vibrateFound(), called from renderResults). If not, the user
-  // is asked to speak again and listening restarts automatically for
-  // another 5 seconds — no need to keep tapping the mic button.
-  const LISTEN_WINDOW_MS = 6000;
+  // ---- Voice recognition (always-on background listening) ----
+  // Mic stays open until the user turns it off. Speak a full plate anytime;
+  // on exact match we search + alert, then keep listening for the next plate.
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
   let listening = false;
   let micPermissionGranted = false;
-  let continuousMode = false;   // true while the user wants to keep speaking plate after plate
+  let backgroundListening = false;
   let restartTimer = null;
-  let micTimeout = null;        // enforces the 5-second listening window
-  let stoppingForSearch = false; // true when stop() was triggered by the 5s timer (not a manual cancel)
+  let idleResetTimer = null;
+  let softRestarting = false;
   let finalTranscriptBuffer = '';
+  let lastSearchedToken = '';
+  let pauseListeningForAlarm = false;
+  const micLabel = document.getElementById('micLabel');
+
+  function setMicUi(active) {
+    if (active) {
+      micBtn.classList.add('listening');
+      micLabel.textContent = 'مفتوح';
+      micBtn.title = 'إيقاف الاستماع المستمر';
+    } else {
+      micBtn.classList.remove('listening');
+      micLabel.textContent = 'مايك';
+      micBtn.title = 'تفعيل الاستماع المستمر';
+    }
+  }
+
+  function setListeningStatus(msg, kind) {
+    statusLine.textContent = msg;
+    statusLine.className = 'status-line' + (kind ? ' ' + kind : '');
+  }
 
   if (SpeechRecognition) {
     recognition = new SpeechRecognition();
     recognition.lang = 'ar-SA';
-    // continuous = true so the engine keeps listening through short pauses
-    // for the whole 5-second window, instead of cutting off after the
-    // first brief silence.
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 10;
@@ -1257,31 +1271,74 @@
       return candidates;
     }
 
-    function maybeStopEarly(parsed, score) {
-      // Only stop early on a confirmed exact DB hit (score includes +100).
-      if (parsed.letters.length === 3 && parsed.digits.length === 4 && score >= 100) {
-        stoppingForSearch = true;
-        clearTimeout(micTimeout);
+    function resetVoiceBuffer() {
+      finalTranscriptBuffer = '';
+      lastSearchedToken = '';
+    }
+
+    function softRestartRecognition() {
+      if (!backgroundListening || pauseListeningForAlarm) return;
+      softRestarting = true;
+      clearTimeout(restartTimer);
+      try { recognition.stop(); } catch (e) {}
+      restartTimer = setTimeout(() => {
+        softRestarting = false;
+        startListening();
+      }, 280);
+    }
+
+    function handleVoicePlate(parsed, rawText) {
+      if (parsed.letters.length !== 3 || parsed.digits.length !== 4) return false;
+      if (parsed.token === lastSearchedToken) return false;
+      lastSearchedToken = parsed.token;
+
+      setPlateFields(parsed);
+      const display = formatPlateSpeechDisplay(parsed);
+      const found = renderResults(rawText || parsed.token);
+
+      if (found) {
+        setListeningStatus('✅ سمعت: ' + display + ' — المايك لسه مفتوح', 'ok-text');
+        // Pause STT while the alarm plays so it doesn't re-hear the siren.
+        pauseListeningForAlarm = true;
+        softRestarting = true;
         try { recognition.stop(); } catch (e) {}
-        return true;
+        clearTimeout(restartTimer);
+        restartTimer = setTimeout(() => {
+          pauseListeningForAlarm = false;
+          softRestarting = false;
+          resetVoiceBuffer();
+          clearPlateFields();
+          if (backgroundListening) {
+            setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
+            startListening();
+          }
+        }, 5200);
+      } else {
+        setListeningStatus('🔁 سمعت: ' + display + ' — مفيش تطابق تام، قول تاني', 'listening-text');
+        clearTimeout(idleResetTimer);
+        idleResetTimer = setTimeout(() => {
+          clearPlateFields();
+          resetVoiceBuffer();
+          softRestartRecognition();
+          if (backgroundListening) {
+            setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
+          }
+        }, 1600);
       }
-      return false;
+      return true;
     }
 
     recognition.onstart = () => {
       listening = true;
-      finalTranscriptBuffer = '';
-      micBtn.classList.add('listening');
-      statusLine.textContent = '🎙️ قول ٣ حروف ثم ٤ أرقام بالترتيب (٦ ثواني)...';
-      statusLine.className = 'status-line listening-text';
-      clearTimeout(micTimeout);
-      micTimeout = setTimeout(() => {
-        stoppingForSearch = true;
-        try { recognition.stop(); } catch (e) {}
-      }, LISTEN_WINDOW_MS);
+      setMicUi(true);
+      if (!pauseListeningForAlarm) {
+        setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
+      }
     };
 
     recognition.onresult = (event) => {
+      if (pauseListeningForAlarm) return;
+
       const finalParts = [];
       let interimText = '';
       for (let i = 0; i < event.results.length; i++) {
@@ -1301,132 +1358,127 @@
       const best = pickBestTranscript(candidates);
       if (best.text) finalTranscriptBuffer = best.text;
       setPlateFields(best.parsed);
-      maybeStopEarly(best.parsed, best.score);
+
+      clearTimeout(idleResetTimer);
+      if (handleVoicePlate(best.parsed, best.text)) return;
+
+      // Incomplete utterance: if speech pauses, drop the buffer so the next
+      // plate starts clean — without ever closing the mic.
+      idleResetTimer = setTimeout(() => {
+        if (pauseListeningForAlarm || !backgroundListening) return;
+        const live = parseSaudiPlateSpeech(finalTranscriptBuffer);
+        if (live.letters.length === 3 && live.digits.length === 4) {
+          handleVoicePlate(live, finalTranscriptBuffer);
+        } else {
+          resetVoiceBuffer();
+          softRestartRecognition();
+        }
+      }, 2200);
     };
 
-    // Runs once the 5-second window ends (recognition.stop() fires this
-    // after flushing any in-progress result): converts whatever was heard
-    // into a compact plate token (e.g. "دال ميم صاد" -> "دمص"), shows it
-    // in the search box and in the "سمعت" status line, then searches it.
-    function finalizeAndSearch() {
-      const transcript = finalTranscriptBuffer.trim();
-      if (!transcript) {
-        statusLine.textContent = '⚠️ مسمعتش حاجة — قول ٣ حروف ثم ٤ أرقام';
-        statusLine.className = 'status-line listening-text';
-        clearPlateFields();
-        return;
-      }
-      const parsed = parseSaudiPlateSpeech(transcript);
-      if (parsed.letters.length < 3) {
-        statusLine.textContent = '⚠️ محتاج ٣ حروف — قول الحروف الأول (مثال: عبق أو عين باء قاف)';
-        statusLine.className = 'status-line listening-text';
-        setPlateFields(parsed);
-        return;
-      }
-      setPlateFields(parsed);
-      const display = getPlateStatusLabel();
-      const found = renderResults(transcript);
-      if (found) {
-        statusLine.textContent = '✅ سمعت: ' + display;
-        statusLine.className = 'status-line ok-text';
-        continuousMode = false;
-      } else {
-        statusLine.textContent = '🔁 سمعت: ' + display + ' — مفيش تطابق تام، اتكلم تاني';
-        statusLine.className = 'status-line listening-text';
-        clearPlateFields();
-      }
-    }
-
     recognition.onerror = (event) => {
-      if (event.error === 'no-speech') {
-        // Common and harmless in continuous mode — just try again silently.
-        if (continuousMode) return;
+      if (event.error === 'no-speech' || event.error === 'aborted') {
+        // Normal while always-on — recognition will restart via onend.
+        return;
       }
       let msg = 'خطأ: ' + event.error;
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        msg = '⚠️ الإذن مرفوض — دوس على 🔒 بجانب العنوان في المتصفح، وفعّل "Microphone"، وارجع افتح الصفحة تاني';
-        continuousMode = false;
-      } else if (event.error === 'no-speech') {
-        msg = '⚠️ مسمعتش حاجة — جرب تاني وقول بصوت أعلى';
+        msg = '⚠️ الإذن مرفوض — دوس على 🔒 بجانب العنوان وفعّل المايك';
+        backgroundListening = false;
+        setMicUi(false);
       } else if (event.error === 'audio-capture') {
         msg = '⚠️ مفيش مايك متاح على الجهاز ده';
-        continuousMode = false;
+        backgroundListening = false;
+        setMicUi(false);
       } else if (event.error === 'network') {
-        msg = '⚠️ خطأ شبكة — التعرف على الصوت محتاج إنترنت';
+        msg = '⚠️ خطأ شبكة — التعرف على الصوت محتاج إنترنت (هحاول تاني...)';
       }
-      statusLine.textContent = msg;
-      statusLine.className = 'status-line';
+      setListeningStatus(msg, '');
       listening = false;
-      stoppingForSearch = false;
-      micBtn.classList.remove('listening');
-      clearTimeout(micTimeout);
     };
 
     recognition.onend = () => {
       listening = false;
-      micBtn.classList.remove('listening');
-      clearTimeout(micTimeout);
+      clearTimeout(idleResetTimer);
 
-      if (stoppingForSearch) {
-        stoppingForSearch = false;
-        finalizeAndSearch();
-        if (continuousMode) {
-          // Not found (or nothing heard) — automatically start the next
-          // 5-second listening window so the person can just talk again.
-          clearTimeout(restartTimer);
-          restartTimer = setTimeout(() => { startListening(); }, 400);
-        }
-        return;
-      }
+      if (softRestarting || pauseListeningForAlarm) return;
 
-      if (continuousMode) {
-        // Ended for another reason (e.g. a transient error) while the user
-        // still wants to keep listening — restart the window.
+      if (backgroundListening) {
+        // Browser ended the session (common after silence) — reopen immediately.
+        setMicUi(true);
         clearTimeout(restartTimer);
-        restartTimer = setTimeout(() => { startListening(); }, 250);
+        restartTimer = setTimeout(() => { startListening(); }, 200);
         return;
       }
+
+      setMicUi(false);
       if (!statusLine.classList.contains('ok-text')) {
-        statusLine.textContent = '';
-        statusLine.className = 'status-line';
+        setListeningStatus('', '');
       }
     };
 
     async function startListening() {
-      // Request mic permission once and remember it — re-checking every
-      // single loop iteration adds a noticeable delay to continuous mode.
+      if (!backgroundListening || pauseListeningForAlarm) return;
       if (!micPermissionGranted && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          // Keep a silent track reference briefly; SpeechRecognition opens its own.
           stream.getTracks().forEach(t => t.stop());
           micPermissionGranted = true;
         } catch (permErr) {
-          statusLine.textContent = '⚠️ مرفوض إذن المايك (' + (permErr.name || permErr.message) + ') — دوس على أيقونة القفل بجانب العنوان وفعّل المايك يدويًا';
-          statusLine.className = 'status-line';
-          continuousMode = false;
+          setListeningStatus(
+            '⚠️ مرفوض إذن المايك (' + (permErr.name || permErr.message) + ') — فعّل المايك من إعدادات الموقع',
+            ''
+          );
+          backgroundListening = false;
+          setMicUi(false);
           return;
         }
       }
       try {
         recognition.start();
       } catch (e) {
-        // "already started" can happen if a restart race occurs — ignore it.
+        // already started — ignore
       }
     }
 
-    micBtn.addEventListener('click', () => {
-      if (listening || continuousMode) {
-        continuousMode = false;
-        stoppingForSearch = false;
-        clearTimeout(restartTimer);
-        clearTimeout(micTimeout);
-        try { recognition.stop(); } catch (e) {}
-        statusLine.textContent = '';
-        statusLine.className = 'status-line';
-        return;
-      }
-      continuousMode = true;
+    function enableBackgroundListening() {
+      backgroundListening = true;
+      pauseListeningForAlarm = false;
+      softRestarting = false;
+      resetVoiceBuffer();
+      setMicUi(true);
+      setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
       startListening();
+    }
+
+    function disableBackgroundListening() {
+      backgroundListening = false;
+      pauseListeningForAlarm = false;
+      softRestarting = false;
+      clearTimeout(restartTimer);
+      clearTimeout(idleResetTimer);
+      resetVoiceBuffer();
+      try { recognition.stop(); } catch (e) {}
+      setMicUi(false);
+      setListeningStatus('المايك مقفول', '');
+    }
+
+    micBtn.addEventListener('click', () => {
+      if (backgroundListening) disableBackgroundListening();
+      else enableBackgroundListening();
+    });
+
+    // Resume background mic after closing the match popup (if still enabled).
+    matchCloseBtn.addEventListener('click', () => {
+      if (backgroundListening && pauseListeningForAlarm) {
+        pauseListeningForAlarm = false;
+        softRestarting = false;
+        resetVoiceBuffer();
+        clearTimeout(restartTimer);
+        setListeningStatus('🎙️ المايك مفتوح — قول أي لوحة في أي وقت', 'listening-text');
+        startListening();
+      }
     });
   } else {
     micBtn.disabled = true;
