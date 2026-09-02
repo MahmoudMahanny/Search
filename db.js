@@ -415,5 +415,5 @@ async function ensureTesseractLoaded() {
   if (typeof Tesseract === 'undefined') throw new Error('مكتبة القراءة البصرية لم تُحمَّل — محتاج إنترنت');
 }
 
-const APP_VERSION = '0.1.20';
-const APP_VERSION_CODE = 21;
+const APP_VERSION = '0.1.21';
+const APP_VERSION_CODE = 22;

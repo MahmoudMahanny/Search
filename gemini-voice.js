@@ -236,9 +236,9 @@
             count++;
           }
           const avg = count > 0 ? sum / count : 0;
-          if (avg > 0.02) {
+          if (avg > 0.012) {
             const now = Date.now();
-            if (now - lastActivityTime > 250) {
+            if (now - lastActivityTime > 400) {
               lastActivityTime = now;
               try { onSpeechActivity(); } catch (e) {}
             }

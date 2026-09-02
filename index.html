@@ -1407,16 +1407,14 @@
   let nativeListenersReady = false;
   let geminiSession = null;
   let geminiInputBuffer = '';
-  let readyToClearOnNextVoice = false;
 
   function onNewVoiceDetected() {
-    if (readyToClearOnNextVoice) {
-      readyToClearOnNextVoice = false;
-      clearPlateFields();
-      resetVoiceBuffer();
-      renderResults('');
-      if (micOpen) setListeningStatus(voiceOpenHint(), 'listening-text');
-    }
+    // Whenever voice/sound is heard: immediately clear old inputs and result card
+    // unless a complete plate is currently being displayed and waiting for new speech.
+    clearPlateFields();
+    resetVoiceBuffer();
+    renderEmpty();
+    if (micOpen) setListeningStatus(voiceOpenHint(), 'listening-text');
   }
   const micLabel = document.getElementById('micLabel');
   const micLiveBanner = document.getElementById('micLiveBanner');
@@ -1499,7 +1497,6 @@
     const display = formatPlateSpeechDisplay(parsed);
     const found = renderResults(rawText || parsed.token);
 
-    readyToClearOnNextVoice = true;
     geminiInputBuffer = '';
     finalTranscriptBuffer = '';
 
@@ -1513,32 +1510,15 @@
       setListeningStatus('✅ سمعت: ' + display + ' — المايك لسه شغال', 'ok-text');
       if (micLiveText) micLiveText.textContent = 'المايك شغال الآن — استماع مستمر';
       setMicUi(true);
-      // Auto-clear fields after 1.5s if user hasn't started speaking yet
-      clearTimeout(idleResetTimer);
-      idleResetTimer = setTimeout(() => {
-        if (!micOpen) return;
-        clearPlateFields();
-        readyToClearOnNextVoice = false;
-        setListeningStatus(voiceOpenHint(), 'listening-text');
-      }, 1500);
     } else {
       setListeningStatus('🔁 سمعت: ' + display + ' — مفيش تطابق تام، قول تاني', 'listening-text');
       setMicUi(true);
-      // Auto-clear fields after 800ms on no-match
-      clearTimeout(idleResetTimer);
-      idleResetTimer = setTimeout(() => {
-        if (!micOpen) return;
-        clearPlateFields();
-        readyToClearOnNextVoice = false;
-        setListeningStatus(voiceOpenHint(), 'listening-text');
-      }, 800);
     }
     return true;
   }
 
   function processTranscriptCandidates(candidates) {
     if (!micOpen) return;
-    onNewVoiceDetected();
     const best = pickBestTranscript(candidates.filter(Boolean));
     if (best.text) finalTranscriptBuffer = best.text;
     setPlateFields(best.parsed);
@@ -1645,7 +1625,6 @@
       },
       onPlate: (plate) => {
         if (!micOpen) return;
-        onNewVoiceDetected();
         const parsed = normalizePlateParts(plate.letters, plate.digits);
         if (parsed.letters.length === 3 && parsed.digits.length === 4) {
           // Instant direct DB check as soon as Gemini fires tool

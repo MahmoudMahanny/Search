@@ -1,6 +1,6 @@
 {
-  "versionCode": 21,
-  "versionName": "0.1.20",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.20/lammah.apk",
-  "notes": "مسح اللوحة السابقة فور سماع أي صوت جديد وكتابة اللوحة الجديدة لحظيًا"
+  "versionCode": 22,
+  "versionName": "0.1.21",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.21/lammah.apk",
+  "notes": "مسح فوري غير مشروط للشاشة بمجرد سماع أي صوت جديد"
 }
