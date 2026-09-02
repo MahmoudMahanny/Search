@@ -361,7 +361,6 @@
   <a href="settings.html" class="nav-link"><span class="nav-icon">⚙️</span>إعدادات</a>
 </nav>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
 <script src="db.js"></script>
 <script>
 (async function () {
@@ -389,12 +388,8 @@
     });
     dbCountEl.textContent = '';
   } catch (err) {
-    dbCountEl.textContent = '⚠️ تعذر تحميل قاعدة البيانات (' + err.message + ')';
-    try {
-      rawRecords = await getAllRecords();
-    } catch (e) {
-      rawRecords = [];
-    }
+    dbCountEl.textContent = '⚠️ تعذر تحميل قاعدة البيانات (' + (err && err.message ? err.message : err) + ')';
+    rawRecords = [];
   }
  
   const normDB = rawRecords.map(r => ({
@@ -654,7 +649,8 @@
  
     try {
       if (typeof Tesseract === 'undefined') {
-        throw new Error('مكتبة القراءة لم تُحمَّل — تأكد من الاتصال بالإنترنت');
+        statusLine.textContent = '📷 جارٍ تجهيز قراءة الصورة...';
+        await ensureTesseractLoaded();
       }
       if (!ocrWorker) {
         statusLine.textContent = '📷 جارٍ تجهيز محرك القراءة (أول مرة فقط)...';

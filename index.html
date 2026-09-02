@@ -712,15 +712,6 @@
     location.protocol === 'capacitor:' ||
     /android_asset/i.test(location.href);
 </script>
-<script src="vendor/xlsx.full.min.js" onerror="window.__xlsxNeedCdn=1"></script>
-<script>
-  if (window.__xlsxNeedCdn || typeof XLSX === 'undefined') {
-    var s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-    document.head.appendChild(s);
-  }
-</script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
 <script src="db.js"></script>
 <script src="update.js"></script>
 <script>
@@ -751,12 +742,8 @@
     });
     dbCountEl.textContent = '';
   } catch (err) {
-    dbCountEl.textContent = '⚠️ تعذر تحميل قاعدة البيانات (' + err.message + ')';
-    try {
-      rawRecords = await getAllRecords();
-    } catch (e) {
-      rawRecords = [];
-    }
+    dbCountEl.textContent = '⚠️ تعذر تحميل قاعدة البيانات (' + (err && err.message ? err.message : err) + ')';
+    rawRecords = [];
   }
 
   const lettersInput = document.getElementById('plateLetters');
@@ -1935,7 +1922,8 @@
 
     try {
       if (typeof Tesseract === 'undefined') {
-        throw new Error('مكتبة القراءة لم تُحمَّل — تأكد من الاتصال بالإنترنت');
+        statusLine.textContent = '📷 جارٍ تجهيز قراءة الصورة...';
+        await ensureTesseractLoaded();
       }
 
       if (!ocrWorker) {
@@ -2062,9 +2050,7 @@
     statusLine.className = 'status-line listening-text';
 
     try {
-      if (typeof XLSX === 'undefined') {
-        throw new Error('مكتبة قراءة الإكسيل لم تُحمَّل — تأكد من الاتصال بالإنترنت');
-      }
+      await ensureXlsxLoaded();
       const buf = await file.arrayBuffer();
       const workbook = XLSX.read(buf, { type: 'array' });
       const parsed = parseWorkbookToRecords(workbook);
@@ -2149,11 +2135,11 @@
     window.LammahUpdate.getLocalInfo().then(info => {
       if (appVersionEl) appVersionEl.textContent = 'v' + (info.version || APP_VERSION);
     }).catch(() => {
-      if (appVersionEl) appVersionEl.textContent = 'v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.1.8');
+      if (appVersionEl) appVersionEl.textContent = 'v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.1.9');
     });
     window.LammahUpdate.startAutoUpdateChecks();
   } else if (appVersionEl) {
-    appVersionEl.textContent = 'v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.1.8');
+    appVersionEl.textContent = 'v' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.1.9');
   }
 
   renderEmpty();

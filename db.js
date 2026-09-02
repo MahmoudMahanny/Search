@@ -232,6 +232,18 @@ function vibrateFound(durationMs) {
   } catch (e) { /* ignore audio failures */ }
 }
 
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error((label || 'عملية') + ' تجاوزت الوقت'));
+    }, ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
+
 function resolveAssetUrl(path) {
   try {
     return new URL(path, window.location.href).href;
@@ -241,9 +253,14 @@ function resolveAssetUrl(path) {
 }
 
 function isCapacitorNative() {
-  return typeof window.Capacitor !== 'undefined' &&
-    typeof window.Capacitor.getPlatform === 'function' &&
-    window.Capacitor.getPlatform() !== 'web';
+  try {
+    if (typeof window !== 'undefined' && window.__LAMMAH_APP_SHELL__) return true;
+    return typeof window.Capacitor !== 'undefined' &&
+      typeof window.Capacitor.getPlatform === 'function' &&
+      window.Capacitor.getPlatform() !== 'web';
+  } catch (e) {
+    return false;
+  }
 }
 
 function recordFromParts(plate, type, bank, chassis, source) {
@@ -292,14 +309,15 @@ async function loadRecordsFromPlatesGz() {
 }
 
 async function loadBaseRecordsFromAssets(onStatus) {
-  const attempts = isCapacitorNative() || (typeof window !== 'undefined' && window.__LAMMAH_APP_SHELL__)
+  const preferJson = isCapacitorNative();
+  const attempts = preferJson
     ? [loadRecordsFromDataJson, loadRecordsFromPlatesGz]
     : [loadRecordsFromPlatesGz, loadRecordsFromDataJson];
   const errors = [];
   for (const loader of attempts) {
     try {
       if (typeof onStatus === 'function') onStatus('جارٍ قراءة ملف البيانات...');
-      return await loader();
+      return await withTimeout(loader(), 45000, 'قراءة الملف');
     } catch (err) {
       errors.push(err.message || String(err));
     }
@@ -307,25 +325,81 @@ async function loadBaseRecordsFromAssets(onStatus) {
   throw new Error(errors.join(' | '));
 }
 
+function persistRecordsInBackground(records) {
+  Promise.resolve().then(async () => {
+    try {
+      await putRecords(records);
+      await setMeta('seeded', true);
+    } catch (e) {
+      try { console.warn('background persist failed', e); } catch (ignore) {}
+    }
+  });
+}
+
 async function ensureBaseRecordsSeeded(onStatus) {
   const report = (msg) => {
     if (typeof onStatus === 'function') onStatus(msg);
   };
-  report('جارٍ فتح قاعدة البيانات المحلية...');
-  const alreadySeeded = await getMeta('seeded');
-  if (alreadySeeded) {
-    report('جارٍ قراءة السجلات المحفوظة...');
-    return getAllRecords();
+
+  // 1) Try IndexedDB cache — but never hang forever.
+  try {
+    report('جارٍ فتح قاعدة البيانات المحلية...');
+    const alreadySeeded = await withTimeout(getMeta('seeded'), 2000, 'meta');
+    if (alreadySeeded) {
+      report('جارٍ قراءة السجلات المحفوظة...');
+      const cached = await withTimeout(getAllRecords(), 4000, 'getAll');
+      if (cached && cached.length) {
+        report('');
+        return cached;
+      }
+    }
+  } catch (e) {
+    report('التخزين المحلي بطيء — جارٍ التحميل من الملف...');
   }
+
+  // 2) Load into memory from bundled assets (this unblocks search).
   const seeded = await loadBaseRecordsFromAssets(report);
-  report('جارٍ حفظ ' + seeded.length.toLocaleString('ar-EG') + ' سجل...');
-  await putRecords(seeded, (done, total) => {
-    const pct = Math.round((done / total) * 100);
-    report('جارٍ الحفظ ' + pct + '% (' + done.toLocaleString('ar-EG') + ')');
-  });
-  await setMeta('seeded', true);
+  report('جاهز — ' + seeded.length.toLocaleString('ar-EG') + ' سجل');
+
+  // 3) Persist in background so next open can use cache (non-blocking).
+  persistRecordsInBackground(seeded);
   return seeded;
 }
 
-const APP_VERSION = '0.1.8';
-const APP_VERSION_CODE = 9;
+function loadExternalScript(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-lammah-src="' + src + '"]');
+    if (existing) {
+      if (existing.getAttribute('data-loaded') === '1') return resolve();
+      existing.addEventListener('load', () => resolve());
+      existing.addEventListener('error', () => reject(new Error('فشل تحميل ' + src)));
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = true;
+    s.setAttribute('data-lammah-src', src);
+    s.onload = () => { s.setAttribute('data-loaded', '1'); resolve(); };
+    s.onerror = () => reject(new Error('فشل تحميل ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function ensureXlsxLoaded() {
+  if (typeof XLSX !== 'undefined') return;
+  try {
+    await loadExternalScript('vendor/xlsx.full.min.js');
+  } catch (e) {
+    await loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+  }
+  if (typeof XLSX === 'undefined') throw new Error('مكتبة الإكسيل لم تُحمَّل');
+}
+
+async function ensureTesseractLoaded() {
+  if (typeof Tesseract !== 'undefined') return;
+  await loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js');
+  if (typeof Tesseract === 'undefined') throw new Error('مكتبة القراءة البصرية لم تُحمَّل — محتاج إنترنت');
+}
+
+const APP_VERSION = '0.1.9';
+const APP_VERSION_CODE = 10;

@@ -1,6 +1,6 @@
 {
-  "versionCode": 9,
-  "versionName": "0.1.8",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.8/lammah.apk",
-  "notes": "إشعار تحديث عند كل فتح + زر البحث عن تحديث في الإعدادات"
+  "versionCode": 10,
+  "versionName": "0.1.9",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.9/lammah.apk",
+  "notes": "إصلاح تعليق التحميل — التطبيق يشتغل فورًا من الملف بدون انتظار IndexedDB"
 }
