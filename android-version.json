@@ -1,6 +1,6 @@
 {
-  "versionCode": 2,
-  "versionName": "1.0.1",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v1.0.1/lammah.apk",
-  "notes": "إصلاح تحميل قاعدة البيانات على أندرويد + Excel يعمل بدون إنترنت"
+  "versionCode": 3,
+  "versionName": "1.0.2",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v1.0.2/lammah.apk",
+  "notes": "إصلاح: إشعار التحديث لا يظهر في أول فتح — يظهر فقط لو في نسخة أحدث فعلاً"
 }

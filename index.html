@@ -2022,6 +2022,13 @@
   const ANDROID_VERSION_URL =
     'https://raw.githubusercontent.com/MahmoudMahanny/Search/main/android-version.json';
   const UPDATE_DISMISS_KEY = 'lammahDismissedUpdateCode';
+  const UPDATE_FIRST_OPEN_KEY = 'lammahFirstOpenAt';
+  const UPDATE_CHECK_DELAY_MS = 12000;
+  let updateListenerRegistered = false;
+
+  function normalizeVersionName(v) {
+    return String(v || '').trim().replace(/^v/i, '');
+  }
 
   async function checkAndroidAppUpdate() {
     if (!isNativeAndroid || !window.Capacitor?.registerPlugin) return;
@@ -2043,10 +2050,20 @@
     }
 
     const localCode = parseInt(localInfo.build, 10) || 0;
+    const localVersion = normalizeVersionName(localInfo.version);
     if (appVersionEl && appVersionRow) {
-      appVersionEl.textContent = localInfo.version || String(localCode);
+      appVersionEl.textContent = localVersion || String(localCode);
       appVersionRow.style.display = 'block';
     }
+
+    // Don't nag on the very first app open — let the user try the app first.
+    const firstOpenAt = parseInt(localStorage.getItem(UPDATE_FIRST_OPEN_KEY) || '0', 10);
+    const now = Date.now();
+    if (!firstOpenAt) {
+      localStorage.setItem(UPDATE_FIRST_OPEN_KEY, String(now));
+      return;
+    }
+    if (now - firstOpenAt < 6 * 60 * 60 * 1000) return;
 
     let remote;
     try {
@@ -2058,12 +2075,15 @@
     }
 
     const remoteCode = parseInt(remote.versionCode, 10) || 0;
-    if (!remoteCode || remoteCode <= localCode || !remote.apkUrl) return;
+    const remoteVersion = normalizeVersionName(remote.versionName);
+    if (!remoteCode || !remote.apkUrl) return;
+    if (localCode > 0 && remoteCode <= localCode) return;
+    if (localVersion && remoteVersion && localVersion === remoteVersion) return;
 
     const dismissedCode = parseInt(localStorage.getItem(UPDATE_DISMISS_KEY) || '0', 10);
     if (dismissedCode >= remoteCode) return;
 
-    updateBannerMsg.textContent = (remote.versionName ? 'الإصدار ' + remote.versionName + ' — ' : '') +
+    updateBannerMsg.textContent = (remoteVersion ? 'الإصدار ' + remoteVersion + ' — ' : '') +
       (remote.notes || 'حمّل النسخة الجديدة وثبّتها فوق القديمة.');
     updateBanner.classList.add('visible');
     document.body.classList.add('has-update-banner');
@@ -2080,14 +2100,19 @@
       document.body.classList.remove('has-update-banner');
     };
 
-    try {
-      await App.addListener('appStateChange', ({ isActive }) => {
-        if (isActive) checkAndroidAppUpdate();
-      });
-    } catch (e) {}
+    if (!updateListenerRegistered) {
+      updateListenerRegistered = true;
+      try {
+        await App.addListener('appStateChange', ({ isActive }) => {
+          if (isActive) setTimeout(checkAndroidAppUpdate, UPDATE_CHECK_DELAY_MS);
+        });
+      } catch (e) {}
+    }
   }
 
-  checkAndroidAppUpdate();
+  if (isNativeAndroid) {
+    setTimeout(checkAndroidAppUpdate, UPDATE_CHECK_DELAY_MS);
+  }
 
   renderEmpty();
 })();
