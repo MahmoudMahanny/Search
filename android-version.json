@@ -1,6 +1,6 @@
 {
-  "versionCode": 10,
-  "versionName": "0.1.9",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.9/lammah.apk",
-  "notes": "إصلاح تعليق التحميل — التطبيق يشتغل فورًا من الملف بدون انتظار IndexedDB"
+  "versionCode": 11,
+  "versionName": "0.1.10",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.10/lammah.apk",
+  "notes": "إصلاح عطل التحميل — خطأ JavaScript كان بيوقف التطبيق بالكامل"
 }

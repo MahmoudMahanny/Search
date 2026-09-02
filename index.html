@@ -1447,7 +1447,7 @@
     else await enableMicSession();
   });
 
-  onMatchPopupClosed = () => {
+  onMatchPopupClosed = async () => {
     if (micOpen && pauseListeningForAlarm) {
       pauseListeningForAlarm = false;
       softRestarting = false;
@@ -1459,7 +1459,7 @@
   };
 
   const inAppShell = isCapacitorAndroidHost();
-  await waitForCapacitor(inAppShell ? 8000 : 1500);
+  await waitForCapacitor(inAppShell ? 4000 : 200);
   isNativeAndroid = inAppShell;
 
   if (inAppShell && !window.Capacitor?.registerPlugin) {

@@ -33,8 +33,8 @@
       } catch (e) { /* fall through */ }
     }
     return {
-      version: typeof APP_VERSION !== 'undefined' ? String(APP_VERSION) : '0.1.9',
-      build: typeof APP_VERSION_CODE !== 'undefined' ? APP_VERSION_CODE : 10
+      version: typeof APP_VERSION !== 'undefined' ? String(APP_VERSION) : '0.1.10',
+      build: typeof APP_VERSION_CODE !== 'undefined' ? APP_VERSION_CODE : 11
     };
   }
 
