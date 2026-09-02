@@ -513,7 +513,7 @@
         <div id="plateLatin" class="plate-latin"></div>
       </div>
     </div>
-    <div class="plate-hint">اكتب حروف اللوحة (٣ حروف) ثم الأرقام من الشمال لليمين — مثال: «عبق ٣٨٤٧»</div>
+    <div class="plate-hint">٣ حروف عربية + ٤ أرقام — مثال: «عبق ٣٨٤٧» أو «عين به قاف ٣ ٨ ٤ ٧»</div>
 
     <div class="media-actions">
       <button id="camBtn" class="media-btn" title="التقاط صورة">
@@ -665,44 +665,59 @@
   // Normalization helpers (normalizeText, normalizeDigits, normalizeArabicLetters,
   // escapeHtml, vibrateFound) are provided globally by db.js, loaded above.
 
-  // Map of Arabic letter *names* spoken aloud -> the letter itself,
-  // so voice recognition saying "الف نون قاف" still matches "انق"
-  const letterNames = {
-    'الف': 'ا', 'أ': 'ا', 'ألف': 'ا',
-    'باء': 'ب', 'با': 'ب',
-    'تاء': 'ت', 'تا': 'ت',
-    'ثاء': 'ث', 'ثا': 'ث',
-    'جيم': 'ج',
-    'حاء': 'ح', 'حا': 'ح',
-    'خاء': 'خ', 'خا': 'خ',
-    'دال': 'د',
-    'ذال': 'ذ',
-    'راء': 'ر', 'را': 'ر',
-    'زاي': 'ز', 'زين': 'ز',
-    'سين': 'س',
-    'شين': 'ش',
-    'صاد': 'ص',
-    'ضاد': 'ض',
-    'طاء': 'ط', 'طا': 'ط',
-    'ظاء': 'ظ', 'ظا': 'ظ',
-    'عين': 'ع',
-    'غين': 'غ',
-    'فاء': 'ف', 'فا': 'ف',
-    'قاف': 'ق',
-    'كاف': 'ك',
-    'لام': 'ل',
-    'ميم': 'م',
-    'نون': 'ن',
-    'هاء': 'ه', 'ها': 'ه',
-    'واو': 'و',
-    'ياء': 'ي', 'يا': 'ي'
-  };
+  // ---- Saudi plate speech parsing (voice + typed) ----
+  const LETTER_DEFINITIONS = [
+    ['ا', ['الف', 'ألف', 'اليف', 'ا']],
+    ['ب', ['باء', 'با', 'به', 'ب']],
+    ['ت', ['تاء', 'تا', 'ته', 'ت']],
+    ['ث', ['ثاء', 'ثا', 'ثه', 'ث']],
+    ['ج', ['جيم', 'جا', 'جه', 'ج']],
+    ['ح', ['حاء', 'حا', 'حه', 'ح']],
+    ['خ', ['خاء', 'خا', 'خه', 'خ']],
+    ['د', ['دال', 'دا', 'ده', 'د']],
+    ['ذ', ['ذال', 'ذا', 'ذه', 'ذ']],
+    ['ر', ['راء', 'را', 'ره', 'ر']],
+    ['ز', ['زاي', 'زين', 'زا', 'زه', 'ز']],
+    ['س', ['سين', 'سا', 'سه', 'س']],
+    ['ش', ['شين', 'شا', 'شه', 'ش']],
+    ['ص', ['صاد', 'صا', 'صه', 'ص']],
+    ['ض', ['ضاد', 'ضا', 'ضه', 'ض']],
+    ['ط', ['طاء', 'طا', 'طه', 'ط']],
+    ['ظ', ['ظاء', 'ظا', 'ظه', 'ظ']],
+    ['ع', ['عين', 'عا', 'عه', 'ع']],
+    ['غ', ['غين', 'غا', 'غه', 'غ']],
+    ['ف', ['فاء', 'فا', 'فه', 'ف']],
+    ['ق', ['قاف', 'قا', 'قه', 'ق']],
+    ['ك', ['كاف', 'كا', 'كه', 'ك']],
+    ['ل', ['لام', 'لا', 'له', 'ل']],
+    ['م', ['ميم', 'ما', 'مه', 'م']],
+    ['ن', ['نون', 'نا', 'نه', 'ن']],
+    ['ه', ['هاء', 'ها', 'ه']],
+    ['و', ['واو', 'وا', 'وه', 'و']],
+    ['ي', ['ياء', 'يا', 'يه', 'ي', 'ى']]
+  ];
 
-  // Spoken number words -> digits. Covers standard MSA forms, forms without
-  // the trailing تاء مربوطة ("ثلاث" not just "ثلاثة"), and common
-  // Egyptian/Gulf colloquial variants, since either accent may be heard.
+  const letterNames = (function buildLetterNamesMap() {
+    const map = {};
+    for (const [letter, names] of LETTER_DEFINITIONS) {
+      for (const raw of names) {
+        const key = normalizeArabicLetters(stripTashkeel(raw)).toLowerCase();
+        if (key) map[key] = letter;
+      }
+    }
+    return map;
+  })();
+
+  const SPEECH_FILLER = new Set([
+    'اه', 'آه', 'ايه', 'إيه', 'ايوه', 'ايوة', 'يعني', 'تمام', 'طيب', 'كده', 'كدا',
+    'لو', 'سوا', 'ال', 'و', 'او', 'أو', 'يا', 'في', 'على', 'من', 'الى', 'إلى',
+    'رقم', 'لوحة', 'اللوحة', 'حروف', 'ارقام', 'أرقام', 'ارقم', 'بعدين', 'قول', 'قولي',
+    'please', 'ok', 'okay', 'the', 'plate', 'letter', 'letters', 'number', 'numbers',
+    'saudi', 'ksa', 'سيارة', 'سياره', 'السيارة', 'السياره'
+  ]);
+
   const numberWords = {
-    'صفر': '0',
+    'صفر': '0', 'صفره': '0', 'زيرو': '0',
     'واحد': '1', 'وحدة': '1', 'واحده': '1', 'وحده': '1',
     'اثنين': '2', 'اتنين': '2', 'إثنين': '2', 'اثنان': '2', 'ثنين': '2',
     'ثلاثة': '3', 'ثلاث': '3', 'تلاته': '3', 'ثلاثه': '3', 'تلاتة': '3', 'تلات': '3',
@@ -714,51 +729,111 @@
     'تسعة': '9', 'تسع': '9', 'تسعه': '9'
   };
 
-  // Saudi plates are always exactly 3 Arabic letters followed by up to 4
-  // digits (padded with leading zeros), so the parser below fills a
-  // dedicated letters buffer (max 3 chars) and digits buffer (max 4 chars)
-  // separately instead of blindly concatenating every recognized word — this
-  // keeps the result correct even if the speech engine adds stray filler
-  // words or repeats something, and it naturally supports every spoken
-  // style: full letter names ("دال ميم صاد"), a single glued word that
-  // already forms the 3 letters ("دمص"/"عبق"), individual digit words
-  // ("ثلاثة ثمانية أربعة سبعة"), or plain digits ("3847" / "٣٨٤٧").
+  function isSpeechFiller(word) {
+    if (!word) return true;
+    return SPEECH_FILLER.has(normalizeArabicLetters(stripTashkeel(word)).toLowerCase());
+  }
+
+  function resolveSpokenLetter(word) {
+    if (!word || isSpeechFiller(word)) return null;
+    let w = normalizeArabicLetters(stripTashkeel(word)).toLowerCase();
+    if (!w) return null;
+
+    if (letterNames[w]) return letterNames[w];
+    if (w.length === 1 && /[\u0621-\u064A]/.test(w)) return w;
+
+    if (w.startsWith('ال') && w.length > 2) {
+      const stripped = w.slice(2);
+      if (letterNames[stripped]) return letterNames[stripped];
+      if (stripped.length === 1 && /[\u0621-\u064A]/.test(stripped)) return stripped;
+      w = stripped;
+    }
+
+    if (w.length === 2 && w[1] === 'ه' && /[\u0621-\u064A]/.test(w[0])) {
+      if (letterNames[w]) return letterNames[w];
+      return w[0];
+    }
+
+    return null;
+  }
+
+  function formatPlateSpeechDisplay(parsed) {
+    if (!parsed.letters && !parsed.digits) return '';
+    if (parsed.digits) return parsed.letters + ' ' + parsed.digits;
+    return parsed.letters;
+  }
+
+  // STT often emits full name + colloquial for the same letter ("طاء" then "طه")
+  // but intentional doubles ("به" twice -> "بب") must be kept.
+  function appendSpokenLetterName(letters, word, resolved, prevWord) {
+    if (!resolved || letters.length >= 3) return letters;
+    const wNorm = normalizeArabicLetters(stripTashkeel(word)).toLowerCase();
+    const prevNorm = prevWord ? normalizeArabicLetters(stripTashkeel(prevWord)).toLowerCase() : '';
+    if (letters.length && letters[letters.length - 1] === resolved) {
+      const isShortColloquial = wNorm.length === 2 && wNorm[1] === 'ه';
+      const prevWasLongName = prevNorm.length >= 3 && letterNames[prevNorm] === resolved;
+      if (isShortColloquial && prevWasLongName) return letters;
+    }
+    return letters + resolved;
+  }
+
   function parseSaudiPlateSpeech(text) {
     text = normalizeDigits(text);
     text = stripTashkeel(text);
     const words = text.trim().split(/\s+/).filter(Boolean);
     let letters = '';
     let digits = '';
+    let digitsPhase = false;
+    let prevLetterWord = '';
 
     for (let w of words) {
-      const wLower = w.trim();
-      if (!wLower) continue;
+      const wNorm = normalizeArabicLetters(w.trim()).toLowerCase();
+      if (!wNorm || isSpeechFiller(wNorm)) continue;
 
-      if (/^\d+$/.test(wLower)) {
-        digits += wLower;
+      const glued = wNorm.match(/^([\u0621-\u064A]+)(\d+)$/);
+      if (glued) {
+        if (letters.length < 3) letters += glued[1].slice(0, 3 - letters.length);
+        digitsPhase = true;
+        digits += glued[2];
         continue;
       }
-      if (numberWords[wLower] !== undefined) {
-        digits += numberWords[wLower];
+
+      if (/^\d+$/.test(wNorm)) {
+        digitsPhase = true;
+        digits += wNorm;
         continue;
       }
-      if (letterNames[wLower]) {
-        if (letters.length < 3) letters += letterNames[wLower];
+
+      if (!digitsPhase && letters.length < 3) {
+        const asLetter = resolveSpokenLetter(wNorm);
+        if (asLetter) {
+          letters = appendSpokenLetterName(letters, wNorm, asLetter, prevLetterWord);
+          prevLetterWord = wNorm;
+          if (letters.length >= 3) digitsPhase = true;
+          continue;
+        }
+        if (/^[\u0621-\u064A]+$/.test(wNorm)) {
+          letters += wNorm.slice(0, 3 - letters.length);
+          if (letters.length >= 3) digitsPhase = true;
+          continue;
+        }
+      }
+
+      if (numberWords[wNorm] !== undefined) {
+        digitsPhase = true;
+        digits += numberWords[wNorm];
         continue;
       }
-      // A word made only of Arabic letters: either a single spelled-out
-      // letter, or a whole plate segment said as one word (e.g. "عبق").
-      const arabicOnly = wLower.replace(/[^\u0621-\u064A]/g, '');
-      if (arabicOnly && arabicOnly.length === wLower.length) {
-        if (letters.length < 3) letters += arabicOnly.slice(0, 3 - letters.length);
-        continue;
+
+      for (const ch of wNorm) {
+        if (/\d/.test(ch)) {
+          digitsPhase = true;
+          if (digits.length < 4) digits += ch;
+        } else if (!digitsPhase && /[\u0621-\u064A]/.test(ch) && letters.length < 3) {
+          letters += ch;
+        }
       }
-      // Fallback: mixed/unrecognized token — salvage any Arabic letters and
-      // digits it contains (still respecting the 3-letter/4-digit caps).
-      for (const ch of wLower) {
-        if (/\d/.test(ch)) { digits += ch; }
-        else if (/[\u0621-\u064A]/.test(ch) && letters.length < 3) { letters += ch; }
-      }
+      if (letters.length >= 3) digitsPhase = true;
     }
 
     letters = normalizeArabicLetters(letters).toLowerCase().slice(0, 3);
@@ -766,9 +841,6 @@
     return { letters, digits, token: letters + digits };
   }
 
-  // Convert a raw spoken/typed phrase into a compact search token
-  // e.g. "دال عين 3 6 9 8" -> "دع3698"
-  // e.g. "عبق ٣٨٤٧"        -> "عبق3847"
   function transcriptToPlateToken(text) {
     return parseSaudiPlateSpeech(text).token;
   }
@@ -798,8 +870,21 @@
 
   updateCountDisplay();
 
+  // Pick the STT alternative most likely to be a valid Saudi plate.
+  function scorePlateTranscript(text) {
+    const p = parseSaudiPlateSpeech(text);
+    let score = 0;
+    if (p.letters.length === 3) score += 20;
+    else score += p.letters.length * 4;
+    if (p.digits.length === 4) score += 20;
+    else score += p.digits.length * 4;
+    if (p.token && normDB.some(r => r.normPlate === p.token)) score += 100;
+    else if (p.letters.length === 3 && normDB.some(r => r.normPlate.startsWith(p.letters))) score += 15;
+    return score;
+  }
+
   function renderEmpty() {
-    resultsEl.innerHTML = '<div class="empty-state">اكتب رقم اللوحة يدويًا، أو اضغط 🎤 وقول الحروف الثلاثة ثم الأرقام<br>مثال: قول «عبق» ثم الأرقام من الشمال لليمين «٣٨٤٧» ← عبق ٣٨٤٧</div>';
+    resultsEl.innerHTML = '<div class="empty-state">اكتب رقم اللوحة يدويًا، أو اضغط 🎤 وقول ٣ حروف ثم ٤ أرقام<br>مثال: «عبق» أو «عين به قاف» ثم «٣٨٤٧» من الشمال لليمين</div>';
   }
 
   function renderResults(query) {
@@ -926,7 +1011,7 @@
   // vibrates (vibrateFound(), called from renderResults). If not, the user
   // is asked to speak again and listening restarts automatically for
   // another 5 seconds — no need to keep tapping the mic button.
-  const LISTEN_WINDOW_MS = 5000;
+  const LISTEN_WINDOW_MS = 6000;
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
   let listening = false;
@@ -945,13 +1030,13 @@
     // first brief silence.
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
+    recognition.maxAlternatives = 5;
 
     recognition.onstart = () => {
       listening = true;
       finalTranscriptBuffer = '';
       micBtn.classList.add('listening');
-      statusLine.textContent = '🎙️ بيسمعك دلوقتي... اتكلم (٥ ثواني)';
+      statusLine.textContent = '🎙️ قول ٣ حروف ثم ٤ أرقام (٦ ثواني)...';
       statusLine.className = 'status-line listening-text';
       clearTimeout(micTimeout);
       micTimeout = setTimeout(() => {
@@ -965,13 +1050,25 @@
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const res = event.results[i];
         if (res.isFinal) {
-          finalTranscriptBuffer += res[0].transcript;
+          let best = res[0].transcript;
+          let bestScore = scorePlateTranscript(best);
+          for (let j = 1; j < res.length; j++) {
+            const alt = res[j].transcript;
+            const altScore = scorePlateTranscript(alt);
+            if (altScore > bestScore) {
+              best = alt;
+              bestScore = altScore;
+            }
+          }
+          finalTranscriptBuffer += best;
         } else {
           interimText += res[0].transcript;
         }
       }
-      // Live feedback while still speaking, shown as-is (raw words).
-      input.value = (finalTranscriptBuffer + ' ' + interimText).trim();
+      const liveRaw = (finalTranscriptBuffer + ' ' + interimText).trim();
+      const liveParsed = parseSaudiPlateSpeech(liveRaw);
+      const liveDisplay = formatPlateSpeechDisplay(liveParsed);
+      input.value = liveDisplay || liveRaw;
       updatePlateLatin();
     };
 
@@ -982,23 +1079,31 @@
     function finalizeAndSearch() {
       const transcript = finalTranscriptBuffer.trim();
       if (!transcript) {
-        statusLine.textContent = '⚠️ مسمعتش حاجة — اتكلم تاني';
+        statusLine.textContent = '⚠️ مسمعتش حاجة — قول ٣ حروف ثم ٤ أرقام';
         statusLine.className = 'status-line listening-text';
         input.value = '';
         updatePlateLatin();
         return;
       }
-      const token = transcriptToPlateToken(transcript) || transcript;
-      input.value = token;
+      const parsed = parseSaudiPlateSpeech(transcript);
+      if (parsed.letters.length < 3) {
+        statusLine.textContent = '⚠️ محتاج ٣ حروف — قول الحروف الأول (مثال: عبق أو عين باء قاف)';
+        statusLine.className = 'status-line listening-text';
+        input.value = formatPlateSpeechDisplay(parsed) || transcript;
+        updatePlateLatin();
+        return;
+      }
+      const token = parsed.token;
+      const display = formatPlateSpeechDisplay(parsed);
+      input.value = display;
       updatePlateLatin();
       const found = renderResults(transcript);
       if (found) {
-        // Exact match — vibrateFound() already ran inside renderResults().
-        statusLine.textContent = '✅ سمعت: ' + token;
+        statusLine.textContent = '✅ سمعت: ' + display;
         statusLine.className = 'status-line ok-text';
         continuousMode = false;
       } else {
-        statusLine.textContent = '🔁 سمعت: ' + token + ' — مفيش نتيجة، اتكلم تاني';
+        statusLine.textContent = '🔁 سمعت: ' + display + ' — مفيش نتيجة، اتكلم تاني';
         statusLine.className = 'status-line listening-text';
         input.value = '';
         updatePlateLatin();
