@@ -221,3 +221,86 @@ function vibrateFound(durationMs) {
     }, ms + 50);
   } catch (e) { /* ignore audio failures */ }
 }
+
+function resolveAssetUrl(path) {
+  try {
+    return new URL(path, window.location.href).href;
+  } catch (e) {
+    return path;
+  }
+}
+
+function isCapacitorNative() {
+  return typeof window.Capacitor !== 'undefined' &&
+    typeof window.Capacitor.getPlatform === 'function' &&
+    window.Capacitor.getPlatform() !== 'web';
+}
+
+function recordFromParts(plate, type, bank, chassis, source) {
+  const normPlate = normalizeText(plate || '');
+  return {
+    dedupeKey: normPlate + '|' + normalizeText(chassis || '') + '|' + normalizeText(bank || ''),
+    plate: plate || '',
+    type: type || '',
+    bank: bank || '',
+    chassis: chassis || '',
+    normPlate,
+    source: source || 'base'
+  };
+}
+
+async function loadRecordsFromDataJson() {
+  const resp = await fetch(resolveAssetUrl('data.json'));
+  if (!resp.ok) throw new Error('data.json HTTP ' + resp.status);
+  const rows = await resp.json();
+  if (!Array.isArray(rows)) throw new Error('data.json غير صالح');
+  return rows.map(row => recordFromParts(row[0], row[1], row[2], row[3], 'base'));
+}
+
+async function loadRecordsFromPlatesGz() {
+  const resp = await fetch(resolveAssetUrl('plates.txt.gz'));
+  if (!resp.ok) throw new Error('plates.txt.gz HTTP ' + resp.status);
+  const buf = await resp.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  const isGzipped = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  let text;
+  if (isGzipped) {
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error('فك ضغط gzip غير مدعوم');
+    }
+    const ds = new DecompressionStream('gzip');
+    const stream = new Blob([buf]).stream().pipeThrough(ds);
+    text = await new Response(stream).text();
+  } else {
+    text = new TextDecoder('utf-8').decode(bytes);
+  }
+  const lines = text.split('\n').filter(Boolean);
+  return lines.map(line => {
+    const parts = line.split('|');
+    return recordFromParts(parts[0], parts[1], parts[2], parts[3], 'base');
+  });
+}
+
+async function loadBaseRecordsFromAssets() {
+  const attempts = isCapacitorNative()
+    ? [loadRecordsFromDataJson, loadRecordsFromPlatesGz]
+    : [loadRecordsFromPlatesGz, loadRecordsFromDataJson];
+  const errors = [];
+  for (const loader of attempts) {
+    try {
+      return await loader();
+    } catch (err) {
+      errors.push(err.message || String(err));
+    }
+  }
+  throw new Error(errors.join(' | '));
+}
+
+async function ensureBaseRecordsSeeded() {
+  const alreadySeeded = await getMeta('seeded');
+  if (alreadySeeded) return getAllRecords();
+  const seeded = await loadBaseRecordsFromAssets();
+  await putRecords(seeded);
+  await setMeta('seeded', true);
+  return seeded;
+}

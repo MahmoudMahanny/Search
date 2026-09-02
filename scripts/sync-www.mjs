@@ -8,6 +8,8 @@ import { join } from 'node:path';
 
 const root = join(import.meta.dirname, '..');
 const www = join(root, 'www');
+const vendorDir = join(www, 'vendor');
+const xlsxSrc = join(root, 'node_modules/xlsx/dist/xlsx.full.min.js');
 
 const files = [
   'index.html',
@@ -30,6 +32,13 @@ for (const name of files) {
 for (const name of optional) {
   const src = join(root, name);
   if (existsSync(src)) cpSync(src, join(www, name));
+}
+
+mkdirSync(vendorDir, { recursive: true });
+if (existsSync(xlsxSrc)) {
+  cpSync(xlsxSrc, join(vendorDir, 'xlsx.full.min.js'));
+} else {
+  console.warn('Warning: xlsx bundle missing — run npm install first');
 }
 
 console.log('Synced web assets → www/');

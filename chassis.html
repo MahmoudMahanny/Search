@@ -379,45 +379,17 @@
     }
   });
  
-  let rawRecords;
+  let rawRecords = [];
   try {
-    const alreadySeeded = await getMeta('seeded');
-    if (alreadySeeded) {
-      rawRecords = await getAllRecords();
-    } else {
-      const resp = await fetch('plates.txt.gz');
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const buf = await resp.arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      const isGzipped = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
-      let text;
-      if (isGzipped) {
-        if (typeof DecompressionStream === 'undefined') {
-          throw new Error('المتصفح لا يدعم فك الضغط — استخدم كروم حديث');
-        }
-        const ds = new DecompressionStream('gzip');
-        const stream = new Blob([buf]).stream().pipeThrough(ds);
-        text = await new Response(stream).text();
-      } else {
-        text = new TextDecoder('utf-8').decode(bytes);
-      }
-      const lines = text.split('\n').filter(Boolean);
-      const seeded = lines.map(line => {
-        const parts = line.split('|');
-        const plate = parts[0] || '', type = parts[1] || '', bank = parts[2] || '', chassis = parts[3] || '';
-        const normPlate = normalizeText(plate);
-        return {
-          dedupeKey: normPlate + '|' + normalizeText(chassis) + '|' + normalizeText(bank),
-          plate, type, bank, chassis, normPlate, source: 'base'
-        };
-      });
-      await putRecords(seeded);
-      await setMeta('seeded', true);
-      rawRecords = seeded;
-    }
+    rawRecords = await ensureBaseRecordsSeeded();
+    dbCountEl.textContent = '';
   } catch (err) {
     dbCountEl.textContent = '⚠️ تعذر تحميل قاعدة البيانات (' + err.message + ')';
-    return;
+    try {
+      rawRecords = await getAllRecords();
+    } catch (e) {
+      rawRecords = [];
+    }
   }
  
   const normDB = rawRecords.map(r => ({

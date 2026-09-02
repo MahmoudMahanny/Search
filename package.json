@@ -19,7 +19,8 @@
     "@capacitor/app": "^7.0.1",
     "@capacitor/browser": "^7.0.1",
     "@capacitor/core": "^7.2.0",
-    "@capgo/capacitor-speech-recognition": "^7.1.0"
+    "@capgo/capacitor-speech-recognition": "^7.1.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.2.0"
