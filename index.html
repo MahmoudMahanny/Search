@@ -2067,8 +2067,7 @@
   const ANDROID_VERSION_URL =
     'https://raw.githubusercontent.com/MahmoudMahanny/Search/main/android-version.json';
   const UPDATE_DISMISS_KEY = 'lammahDismissedUpdateCode';
-  const UPDATE_FIRST_OPEN_KEY = 'lammahFirstOpenAt';
-  const UPDATE_CHECK_DELAY_MS = 12000;
+  const UPDATE_CHECK_DELAY_MS = 5000;
   let updateListenerRegistered = false;
 
   function normalizeVersionName(v) {
@@ -2100,15 +2099,6 @@
       appVersionEl.textContent = localVersion || String(localCode);
       appVersionRow.style.display = 'block';
     }
-
-    // Don't nag on the very first app open — let the user try the app first.
-    const firstOpenAt = parseInt(localStorage.getItem(UPDATE_FIRST_OPEN_KEY) || '0', 10);
-    const now = Date.now();
-    if (!firstOpenAt) {
-      localStorage.setItem(UPDATE_FIRST_OPEN_KEY, String(now));
-      return;
-    }
-    if (now - firstOpenAt < 6 * 60 * 60 * 1000) return;
 
     let remote;
     try {

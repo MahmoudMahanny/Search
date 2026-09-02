@@ -1,6 +1,6 @@
 {
-  "versionCode": 4,
-  "versionName": "1.0.3",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v1.0.3/lammah.apk",
-  "notes": "إصلاح المايك — Google Speech الأصلي بدل Web Speech في التطبيق"
+  "versionCode": 5,
+  "versionName": "1.0.4",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v1.0.4/lammah.apk",
+  "notes": "إشعار التحديث يظهر لو عندك نسخة قديمة — مش لو أنت على آخر إصدار"
 }
