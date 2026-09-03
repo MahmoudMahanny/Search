@@ -143,6 +143,7 @@
     let nativeMicListener = null;
     let nativeMicPlugin = null;
     let lastNativeActivityTime = 0;
+    let micWarmupUntil = 0;
 
     function isCapacitorAndroid() {
       try {
@@ -312,8 +313,13 @@
       };
     }
 
+    function markMicWarmup() {
+      micWarmupUntil = Date.now() + 3000;
+    }
+
     function feedPcmFloat(float32) {
       if (!running || sendingPaused || !float32 || !float32.length) return;
+      const inWarmup = Date.now() < micWarmupUntil;
       let sum = 0;
       const step = Math.max(1, Math.floor(float32.length / 32));
       let count = 0;
@@ -322,7 +328,8 @@
         count++;
       }
       const avg = count > 0 ? sum / count : 0;
-      if (avg > 0.012) {
+      const activityThreshold = inWarmup ? 0.045 : 0.012;
+      if (avg > activityThreshold) {
         const now = Date.now();
         if (now - lastNativeActivityTime > 400) {
           lastNativeActivityTime = now;
@@ -351,6 +358,7 @@
         flushTimer = setInterval(() => flushPcm(true), 20);
       }
       emitEvent('mic_attached', { audioContext: 'native', micTrack: 'live', source: 'native' });
+      markMicWarmup();
     }
 
     async function openNativeMicStream() {
@@ -533,6 +541,7 @@
         throw new Error('المايك لم يصبح جاهزًا بعد الربط');
       }
       emitEvent('mic_attached', { audioContext: audioContext.state, micTrack: micTrackState() });
+      markMicWarmup();
     }
 
     function stopMic() {
