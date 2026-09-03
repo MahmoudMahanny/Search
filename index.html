@@ -1008,6 +1008,140 @@
     return map;
   })();
 
+  const SAUDI_PLATE_LETTER_SET = new Set(LETTER_DEFINITIONS.map(([ch]) => ch));
+
+  const HEBREW_TO_ARABIC = {
+    '\u05D0': 'ا', '\u05D1': 'ب', '\u05D2': 'ج', '\u05D3': 'د', '\u05D4': 'ه',
+    '\u05D5': 'و', '\u05D6': 'ز', '\u05D7': 'ح', '\u05D8': 'ط', '\u05D9': 'ي',
+    '\u05DB': 'ك', '\u05DA': 'ك', '\u05DC': 'ل', '\u05DE': 'م', '\u05DD': 'م',
+    '\u05E0': 'ن', '\u05E1': 'س', '\u05E2': 'ع', '\u05E4': 'ف', '\u05E3': 'ف',
+    '\u05E7': 'ق', '\u05E8': 'ر', '\u05E9': 'ش', '\u05EA': 'ت'
+  };
+
+  const ARABIC_SIMILAR_GROUPS = [
+    ['ق', 'ك'], ['س', 'ص'], ['ت', 'ط'], ['ذ', 'د'], ['ز', 'ظ'], ['ه', 'ة'],
+    ['ا', 'أ', 'إ', 'آ'], ['ر', 'ز']
+  ];
+
+  let plateIndexCache = null;
+
+  function invalidatePlateIndex() {
+    plateIndexCache = null;
+  }
+
+  function getPlateIndex() {
+    if (plateIndexCache) return plateIndexCache;
+    const lookup = new Map();
+    const allTokens = [];
+    const allowedFromDb = new Set();
+    for (const row of normDB) {
+      const np = row.normPlate;
+      if (!np || np.length < 7) continue;
+      allTokens.push(np);
+      if (!lookup.has(np)) lookup.set(np, []);
+      lookup.get(np).push(row);
+      for (let i = 0; i < 3; i++) allowedFromDb.add(np[i]);
+    }
+    plateIndexCache = { lookup, allTokens, allowedFromDb };
+    return plateIndexCache;
+  }
+
+  function mapToAllowedPlateLetter(ch) {
+    if (!ch) return '';
+    if (SAUDI_PLATE_LETTER_SET.has(ch)) return ch;
+    if (HEBREW_TO_ARABIC[ch]) return HEBREW_TO_ARABIC[ch];
+    const idx = getPlateIndex();
+    if (idx.allowedFromDb.has(ch)) return ch;
+    return '';
+  }
+
+  function sanitizePlateParsed(parsed) {
+    const letters = normalizeArabicLetters(
+      String(parsed.letters || '')
+        .split('')
+        .map(mapToAllowedPlateLetter)
+        .join('')
+    ).toLowerCase().slice(0, 3);
+    const digits = String(parsed.digits || '').replace(/\D/g, '').slice(0, 4);
+    return { letters, digits, token: letters + digits };
+  }
+
+  function letterSubstCost(a, b) {
+    if (a === b) return 0;
+    if (!a || !b) return 1;
+    for (const group of ARABIC_SIMILAR_GROUPS) {
+      if (group.includes(a) && group.includes(b)) return 0.5;
+    }
+    return 1;
+  }
+
+  function plateTokenDistance(a, b) {
+    if (!a || !b || a.length < 7 || b.length < 7) return 99;
+    let d = 0;
+    for (let i = 0; i < 3; i++) d += letterSubstCost(a[i], b[i]);
+    for (let i = 0; i < 4; i++) {
+      if (a[3 + i] !== b[3 + i]) d += 1;
+    }
+    return d;
+  }
+
+  const FUZZY_MAX_DISTANCE = 1.01;
+
+  function fuzzyMatchPlate(parsed) {
+    const token = parsed && parsed.token;
+    if (!token || token.length !== 7) return null;
+    const idx = getPlateIndex();
+    if (idx.lookup.has(token)) return null;
+
+    let minDist = Infinity;
+    const atMin = [];
+    for (let i = 0; i < idx.allTokens.length; i++) {
+      const np = idx.allTokens[i];
+      const dist = plateTokenDistance(token, np);
+      if (dist > FUZZY_MAX_DISTANCE) continue;
+      if (dist < minDist) {
+        minDist = dist;
+        atMin.length = 0;
+        atMin.push(np);
+      } else if (dist === minDist) {
+        atMin.push(np);
+      }
+    }
+    if (!atMin.length || atMin.length > 1) return null;
+
+    const normPlate = atMin[0];
+    const records = idx.lookup.get(normPlate) || [];
+    if (!records.length) return null;
+    return {
+      parsed: {
+        letters: normPlate.slice(0, 3),
+        digits: normPlate.slice(3),
+        token: normPlate
+      },
+      records,
+      distance: minDist,
+      originalToken: token
+    };
+  }
+
+  function refinePlateWithDB(parsed) {
+    const p = sanitizePlateParsed(parsed || { letters: '', digits: '', token: '' });
+    if (p.letters.length !== 3 || p.digits.length !== 4) return p;
+    const idx = getPlateIndex();
+    if (idx.lookup.has(p.token)) {
+      return Object.assign({}, p, { refined: 'exact' });
+    }
+    const fuzzy = fuzzyMatchPlate(p);
+    if (fuzzy) {
+      return Object.assign({}, fuzzy.parsed, {
+        refined: 'fuzzy',
+        fuzzyDistance: fuzzy.distance,
+        originalToken: fuzzy.originalToken
+      });
+    }
+    return Object.assign({}, p, { refined: 'none' });
+  }
+
   const SPEECH_FILLER = new Set([
     'اه', 'آه', 'ايه', 'إيه', 'ايوه', 'ايوة', 'يعني', 'تمام', 'طيب', 'كده', 'كدا',
     'لو', 'سوا', 'ال', 'و', 'او', 'أو', 'يا', 'في', 'على', 'من', 'الى', 'إلى',
@@ -1156,7 +1290,7 @@
 
     letters = normalizeArabicLetters(letters).toLowerCase().slice(0, 3);
     digits = digits.slice(0, 4);
-    return { letters, digits, token: letters + digits };
+    return sanitizePlateParsed({ letters, digits, token: letters + digits });
   }
 
   function transcriptToPlateToken(text) {
@@ -1164,22 +1298,20 @@
   }
 
   function scorePlateCandidate(parsed) {
+    const p = sanitizePlateParsed(parsed);
     let score = 0;
-    if (parsed.letters.length === 3) score += 20;
-    else score += parsed.letters.length * 4;
-    if (parsed.digits.length === 4) score += 20;
-    else score += parsed.digits.length * 4;
-    // Only boost exact DB hits — never reward "close" letter/digit matches.
-    if (parsed.token && parsed.letters.length === 3 && parsed.digits.length === 4 &&
-        normDB.some(r => r.normPlate === parsed.token)) {
+    if (p.letters.length === 3) score += 20;
+    else score += p.letters.length * 4;
+    if (p.digits.length === 4) score += 20;
+    else score += p.digits.length * 4;
+    const idx = getPlateIndex();
+    if (p.token && p.letters.length === 3 && p.digits.length === 4 && idx.lookup.has(p.token)) {
       score += 100;
+    } else if (p.letters.length === 3 && p.digits.length === 4) {
+      const fuzzy = fuzzyMatchPlate(p);
+      if (fuzzy) score += Math.max(40, 80 - fuzzy.distance * 30);
     }
     return score;
-  }
-
-  // Exact DB hit only — do not snap to a nearby plate.
-  function refinePlateWithDB(parsed) {
-    return parsed || { letters: '', digits: '', token: '' };
   }
 
   function pickBestTranscript(candidates) {
@@ -1197,7 +1329,7 @@
     }
     for (const text of expanded) {
       if (!text) continue;
-      const parsed = parseSaudiPlateSpeech(text);
+      const parsed = sanitizePlateParsed(parseSaudiPlateSpeech(text));
       const score = scorePlateCandidate(parsed);
       if (score > bestScore) {
         bestScore = score;
@@ -1266,6 +1398,7 @@
     chassis: r.chassis || '', normPlate: r.normPlate || normalizeText(r.plate || ''),
     source: r.source || 'base'
   }));
+  getPlateIndex();
 
   const extraCountBadge = document.getElementById('extraCountBadge');
 
@@ -1334,13 +1467,13 @@
     showMatchPopup(records);
   }
 
-  function renderResults(query) {
-    const parsed = parseSaudiPlateSpeech(query);
-    const token = parsed.token;
+  function renderResults(query, options) {
+    const opts = Object.assign({ allowFuzzy: false }, options || {});
+    let parsed = sanitizePlateParsed(parseSaudiPlateSpeech(query));
+    let fuzzyFrom = '';
     setPlateFields(parsed);
 
-    // Strict exact match only: full 3 letters + 4 digits, or nothing.
-    if (parsed.letters.length !== 3 || parsed.digits.length !== 4 || !token) {
+    if (parsed.letters.length !== 3 || parsed.digits.length !== 4 || !parsed.token) {
       if (!parsed.letters && !parsed.digits) {
         renderEmpty();
       } else {
@@ -1349,13 +1482,31 @@
       return false;
     }
 
-    const exact = [];
-    for (const row of normDB) {
-      if (row.normPlate === token) exact.push(row);
+    const idx = getPlateIndex();
+    let list = (idx.lookup.get(parsed.token) || []).slice();
+    let matchKind = 'exact';
+
+    if (!list.length && opts.allowFuzzy) {
+      const fuzzy = fuzzyMatchPlate(parsed);
+      if (fuzzy) {
+        parsed = fuzzy.parsed;
+        setPlateFields(parsed);
+        list = fuzzy.records.slice();
+        matchKind = 'fuzzy';
+        if (fuzzy.originalToken !== fuzzy.parsed.token) {
+          const heard = formatPlateSpeechDisplay(sanitizePlateParsed({
+            letters: fuzzy.originalToken.slice(0, 3),
+            digits: fuzzy.originalToken.slice(3),
+            token: fuzzy.originalToken
+          }));
+          const fixed = formatPlateSpeechDisplay(parsed);
+          fuzzyFrom = heard && fixed && heard !== fixed ? heard : '';
+        }
+      }
     }
 
     const seen = new Set();
-    const list = exact.filter(r => {
+    list = list.filter(r => {
       const key = r.plate + '|' + r.chassis + '|' + r.bank;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -1368,7 +1519,10 @@
       return false;
     }
 
-    let html = '<div class="count-badge">✅ تطابق تام — ' + list.length + ' نتيجة</div>';
+    const badge = matchKind === 'fuzzy'
+      ? '🔧 تطابق مصحّح' + (fuzzyFrom ? ' — سمعنا: «' + escapeHtml(fuzzyFrom) + '»' : '') + ' — ' + list.length + ' نتيجة'
+      : '✅ تطابق تام — ' + list.length + ' نتيجة';
+    let html = '<div class="count-badge">' + badge + '</div>';
     for (const r of list) {
       html += '<div class="result-card exact">';
       html += '<div class="plate-num">' + escapeHtml(r.plate) + '</div>';
@@ -1629,9 +1783,10 @@
   }
 
   function normalizePlateParts(letters, digits) {
-    const L = normalizeArabicLetters(String(letters || '')).toLowerCase().replace(/\s+/g, '').slice(0, 3);
-    const D = normalizeDigits(String(digits || '')).replace(/\D/g, '').slice(0, 4);
-    return { letters: L, digits: D, token: L + D };
+    return sanitizePlateParsed({
+      letters: String(letters || ''),
+      digits: String(digits || '')
+    });
   }
 
   function queueNativeVoiceOp(task) {
@@ -1689,29 +1844,30 @@
   }
 
   function handleVoicePlate(parsed, rawText) {
+    parsed = refinePlateWithDB(normalizePlateParts(parsed.letters, parsed.digits));
     if (parsed.letters.length !== 3 || parsed.digits.length !== 4) return false;
     if (parsed.token === lastSearchedToken) return false;
     lastSearchedToken = parsed.token;
 
     setPlateFields(parsed);
     const display = formatPlateSpeechDisplay(parsed);
-    const found = renderResults(rawText || parsed.token);
+    const found = renderResults(rawText || parsed.token, { allowFuzzy: true });
 
     geminiInputBuffer = '';
     finalTranscriptBuffer = '';
 
-    // Allow re-searching the same plate if spoken again later
     clearTimeout(restartTimer);
     restartTimer = setTimeout(() => {
       if (lastSearchedToken === parsed.token) lastSearchedToken = '';
     }, 1800);
 
     if (found) {
-      setListeningStatus('✅ سمعت: ' + display + ' — المايك لسه شغال', 'ok-text');
+      const prefix = parsed.refined === 'fuzzy' ? '✅ صُحّحت: ' : '✅ سمعت: ';
+      setListeningStatus(prefix + display + ' — المايك لسه شغال', 'ok-text');
       if (micLiveText) micLiveText.textContent = 'المايك شغال الآن — استماع مستمر';
       setMicUi(true);
     } else {
-      setListeningStatus('🔁 سمعت: ' + display + ' — مفيش تطابق تام، قول تاني', 'listening-text');
+      setListeningStatus('🔁 سمعت: ' + display + ' — مفيش تطابق، قول تاني', 'listening-text');
       setMicUi(true);
     }
     return true;
@@ -1860,9 +2016,8 @@
       },
       onPlate: (plate) => {
         if (!micOpen) return;
-        const parsed = normalizePlateParts(plate.letters, plate.digits);
+        const parsed = refinePlateWithDB(normalizePlateParts(plate.letters, plate.digits));
         if (parsed.letters.length === 3 && parsed.digits.length === 4) {
-          // Instant direct DB check as soon as Gemini fires tool
           handleVoicePlate(parsed, plate.transcript || parsed.token);
         }
       },
@@ -2652,6 +2807,7 @@
       for (const r of toAdd) {
         normDB.push({ plate: r.plate, type: r.type, bank: r.bank, chassis: r.chassis, normPlate: r.normPlate, source: 'extra' });
       }
+      invalidatePlateIndex();
       updateCountDisplay();
       setListeningStatus('✅ تمت إضافة ' + toAdd.length.toLocaleString('ar-EG') + ' سجل جديد (محفوظ على هذا الجهاز فقط)', 'ok-text');
     } catch (err) {
@@ -2685,6 +2841,7 @@
     try {
       await clearEverything();
       normDB = [];
+      invalidatePlateIndex();
       updateCountDisplay();
       statusLine.textContent = '✅ اتمسحت كل البيانات وسجل البحث من هذا الجهاز';
       statusLine.className = 'status-line ok-text';

@@ -1,6 +1,6 @@
 {
-  "versionCode": 33,
-  "versionName": "0.1.32",
+  "versionCode": 34,
+  "versionName": "0.1.33",
   "apkUrl": "https://mahmoudmahanny.github.io/Search/downloads/lammah.apk",
-  "notes": "تعليمات Gemini محسّنة + 1000 لوحة كمثال + منع العبري في التفريغ الصوتي."
+  "notes": "فلترة حروف اللوحة + مطابقة ذكية (تصحيح خطأ حرف/رقم واحد) للصوت."
 }

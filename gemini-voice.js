@@ -31,6 +31,13 @@
   const ARABIC_LETTER_RE = /[\u0621-\u064A]/;
   const ARABIC_PLATE_LETTERS_RE = /^[\u0621-\u064A]{3}$/;
   const HEBREW_RE = /[\u0590-\u05FF]/;
+  const HEBREW_TO_ARABIC = {
+    '\u05D0': 'ا', '\u05D1': 'ب', '\u05D2': 'ج', '\u05D3': 'د', '\u05D4': 'ه',
+    '\u05D5': 'و', '\u05D6': 'ز', '\u05D7': 'ح', '\u05D8': 'ط', '\u05D9': 'ي',
+    '\u05DB': 'ك', '\u05DA': 'ك', '\u05DC': 'ل', '\u05DE': 'م', '\u05DD': 'م',
+    '\u05E0': 'ن', '\u05E1': 'س', '\u05E2': 'ع', '\u05E4': 'ف', '\u05E3': 'ف',
+    '\u05E7': 'ق', '\u05E8': 'ر', '\u05E9': 'ش', '\u05EA': 'ت'
+  };
 
   function getPlateSamples() {
     try {
@@ -55,7 +62,7 @@
     return String(raw || '')
       .replace(/\s+/g, '')
       .split('')
-      .filter((ch) => ARABIC_LETTER_RE.test(ch))
+      .map((ch) => (ARABIC_LETTER_RE.test(ch) ? ch : (HEBREW_TO_ARABIC[ch] || '')))
       .join('')
       .slice(0, 3);
   }
