@@ -1,6 +1,6 @@
 {
-  "versionCode": 25,
-  "versionName": "0.1.24",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.24/lammah.apk",
-  "notes": "إصلاح خطأ Parsing failed — احذف أي نسخة قديمة ثم ثبّت v0.1.24"
+  "versionCode": 26,
+  "versionName": "0.1.25",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.25/lammah-0.1.25.apk",
+  "notes": "مهم: احذف ملف 0.1.23 من التنزيلات. الحجم الصحيح ≈ 6.5 ميجا. احذف التطبيق القديم ثم ثبّت هذا الملف."
 }

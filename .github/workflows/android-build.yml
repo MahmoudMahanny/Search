@@ -107,14 +107,23 @@ jobs:
           VERSION_NAME=$(node -pe "JSON.parse(require('fs').readFileSync('android-version.json','utf8')).versionName")
           NOTES=$(node -pe "JSON.parse(require('fs').readFileSync('android-version.json','utf8')).notes || 'تحديث جديد'")
           TAG="android-v${VERSION_NAME}"
-          cp android/app/build/outputs/apk/debug/app-debug.apk lammah.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk "lammah-${VERSION_NAME}.apk"
+          cp "lammah-${VERSION_NAME}.apk" lammah.apk
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" lammah.apk --clobber
+            gh release upload "$TAG" "lammah-${VERSION_NAME}.apk" lammah.apk --clobber
           else
-            gh release create "$TAG" lammah.apk \
+            gh release create "$TAG" "lammah-${VERSION_NAME}.apk" lammah.apk \
               --title "لمّاح Android ${VERSION_NAME}" \
-              --notes "$NOTES"
+              --notes "$NOTES
+
+          الحجم الصحيح حوالي 6.5 ميجا. لا تثبّت ملفات 0.1.22 أو 0.1.23 القديمة."
           fi
+          # Replace broken older assets so old download links still work
+          for OLD in android-v0.1.22 android-v0.1.23 android-v0.1.24; do
+            if gh release view "$OLD" >/dev/null 2>&1; then
+              gh release upload "$OLD" lammah.apk --clobber || true
+            fi
+          done
 
       - name: Commit version manifest after release
         if: github.event_name == 'workflow_dispatch'
