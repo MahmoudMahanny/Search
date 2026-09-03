@@ -670,6 +670,111 @@
     text-align: center;
     margin-top: 6px;
   }
+
+  /* ---- Live scan log: every plate the app searched, newest first.
+     Green frame = found in DB, red frame = not found. ---- */
+  .scan-log {
+    margin-top: 18px;
+  }
+  .scan-log-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .scan-log-head strong {
+    font-size: 14px;
+    color: var(--text);
+  }
+  .scan-log-stats {
+    font-size: 11.5px;
+    color: var(--muted);
+    display: flex;
+    gap: 8px;
+  }
+  .scan-log-stats .hit { color: #4cc86a; font-weight: 700; }
+  .scan-log-stats .miss { color: var(--danger); font-weight: 700; }
+  .scan-log-clear {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 8px;
+    font-size: 11px;
+    padding: 4px 9px;
+    cursor: pointer;
+  }
+  .scan-log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 46vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .scan-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 11px;
+    border-radius: 12px;
+    background: var(--panel);
+    border: 2px solid var(--border);
+    animation: scanIn 0.18s ease;
+  }
+  @keyframes scanIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .scan-row.found {
+    border-color: #3ec45f;
+    background: linear-gradient(180deg, rgba(62, 196, 95, 0.14), rgba(62, 196, 95, 0.05));
+  }
+  .scan-row.missing {
+    border-color: var(--danger);
+    background: linear-gradient(180deg, rgba(224, 90, 90, 0.14), rgba(224, 90, 90, 0.05));
+  }
+  .scan-row-mark {
+    font-size: 17px;
+    line-height: 1;
+    flex: 0 0 auto;
+  }
+  .scan-row-main {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .scan-row-plate {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    direction: rtl;
+    color: var(--text);
+  }
+  .scan-row.found .scan-row-plate { color: #63d97f; }
+  .scan-row.missing .scan-row-plate { color: #ff9c9c; }
+  html[data-theme="light"] .scan-row.found .scan-row-plate { color: #1d7a35; }
+  html[data-theme="light"] .scan-row.missing .scan-row-plate { color: #a32020; }
+  .scan-row-meta {
+    font-size: 11.5px;
+    color: var(--muted);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .scan-row-time {
+    font-size: 10.5px;
+    color: var(--muted);
+    flex: 0 0 auto;
+    opacity: 0.75;
+  }
+  .scan-log-empty {
+    text-align: center;
+    color: var(--muted);
+    font-size: 12.5px;
+    padding: 14px 8px;
+  }
+
   .footer-note {
     text-align: center;
     color: var(--muted);
@@ -823,6 +928,21 @@
   </div>
 
   <div id="results" class="results"></div>
+
+  <section id="scanLog" class="scan-log" aria-live="polite">
+    <div class="scan-log-head">
+      <strong>📋 سجل اللوحات</strong>
+      <span class="scan-log-stats">
+        <span class="hit" id="scanHitCount">0 ✅</span>
+        <span class="miss" id="scanMissCount">0 ❌</span>
+      </span>
+      <button type="button" id="scanLogClear" class="scan-log-clear">مسح السجل</button>
+    </div>
+    <div id="scanLogList" class="scan-log-list">
+      <div class="scan-log-empty">كل لوحة تبحث عنها هتظهر هنا — أخضر = موجودة، أحمر = غير موجودة</div>
+    </div>
+  </section>
+
   <div class="footer-note" id="appVersionRow">الإصدار <span id="appVersion"></span></div>
 
   <div id="cropOverlay">
@@ -848,10 +968,10 @@
 
   <div id="matchOverlay" role="dialog" aria-modal="true" aria-labelledby="matchTitle">
     <div id="matchBox">
-      <div id="matchTitle">✅ تم العثور على اللوحة</div>
+      <div id="matchTitle">🚨 لوحة موجودة — البحث متوقف</div>
       <div id="matchPlate"></div>
       <div id="matchDetails"></div>
-      <button type="button" id="matchClose">إغلاق</button>
+      <button type="button" id="matchClose">إغلاق التنبيه ومتابعة البحث ▶️</button>
     </div>
   </div>
 </div>
@@ -1435,6 +1555,87 @@
   const matchDetailsEl = document.getElementById('matchDetails');
   const matchCloseBtn = document.getElementById('matchClose');
 
+  // ---- Live scan log: every searched plate, newest first.
+  const scanLogListEl = document.getElementById('scanLogList');
+  const scanHitCountEl = document.getElementById('scanHitCount');
+  const scanMissCountEl = document.getElementById('scanMissCount');
+  const scanLogClearBtn = document.getElementById('scanLogClear');
+  const SCAN_LOG_MAX = 200;
+  const scanLog = [];
+
+  function scanLogTime(d) {
+    return d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  function plateDisplayToken(parsed) {
+    const letters = String(parsed.letters || '').split('').join(' ');
+    return letters + ' | ' + String(parsed.digits || '');
+  }
+
+  function renderScanLog() {
+    if (!scanLogListEl) return;
+    const hits = scanLog.filter(e => e.found).length;
+    const misses = scanLog.length - hits;
+    if (scanHitCountEl) scanHitCountEl.textContent = hits.toLocaleString('ar-EG') + ' ✅';
+    if (scanMissCountEl) scanMissCountEl.textContent = misses.toLocaleString('ar-EG') + ' ❌';
+
+    if (!scanLog.length) {
+      scanLogListEl.innerHTML =
+        '<div class="scan-log-empty">كل لوحة تبحث عنها هتظهر هنا — أخضر = موجودة، أحمر = غير موجودة</div>';
+      return;
+    }
+
+    scanLogListEl.innerHTML = scanLog.map((e) => {
+      const cls = e.found ? 'found' : 'missing';
+      const mark = e.found ? '✅' : '❌';
+      let meta;
+      if (e.found) {
+        meta = [e.type, e.bank].filter(Boolean).join(' — ') || 'موجودة في قاعدة البيانات';
+      } else {
+        meta = 'غير موجودة';
+      }
+      if (e.correctedFrom) meta = '🔧 سمعنا: ' + e.correctedFrom + ' — ' + meta;
+      return (
+        '<div class="scan-row ' + cls + '">' +
+          '<span class="scan-row-mark">' + mark + '</span>' +
+          '<span class="scan-row-main">' +
+            '<span class="scan-row-plate">' + escapeHtml(e.display) + '</span>' +
+            '<span class="scan-row-meta">' + escapeHtml(meta) + '</span>' +
+          '</span>' +
+          '<span class="scan-row-time">' + escapeHtml(e.time) + '</span>' +
+        '</div>'
+      );
+    }).join('');
+  }
+
+  function addScanLogEntry(parsed, found, records, correctedFrom) {
+    const last = scanLog[0];
+    const now = Date.now();
+    if (last && last.token === parsed.token && now - last.at < 2500) return;
+    const primary = (records && records[0]) || null;
+    scanLog.unshift({
+      token: parsed.token,
+      at: now,
+      display: plateDisplayToken(parsed),
+      found: !!found,
+      type: primary ? primary.type : '',
+      bank: primary ? primary.bank : '',
+      correctedFrom: correctedFrom || '',
+      time: scanLogTime(new Date())
+    });
+    if (scanLog.length > SCAN_LOG_MAX) scanLog.length = SCAN_LOG_MAX;
+    renderScanLog();
+  }
+
+  if (scanLogClearBtn) {
+    scanLogClearBtn.addEventListener('click', () => {
+      scanLog.length = 0;
+      renderScanLog();
+    });
+  }
+
+  renderScanLog();
+
   function closeMatchPopup() {
     matchOverlay.classList.remove('active');
     if (typeof stopAlarm === 'function') stopAlarm();
@@ -1463,12 +1664,15 @@
   });
 
   function announceExactMatch(records) {
+    // Main purpose of the app: a DB hit must stop the scan and alert loudly
+    // until the user acknowledges it.
+    pauseSearchForAlarm();
     vibrateFound(6000);
     showMatchPopup(records);
   }
 
   function renderResults(query, options) {
-    const opts = Object.assign({ allowFuzzy: false }, options || {});
+    const opts = Object.assign({ allowFuzzy: false, log: false }, options || {});
     let parsed = sanitizePlateParsed(parseSaudiPlateSpeech(query));
     let fuzzyFrom = '';
     setPlateFields(parsed);
@@ -1516,6 +1720,7 @@
     if (list.length === 0) {
       const label = formatPlateSpeechDisplay(parsed) || query;
       resultsEl.innerHTML = '<div class="no-results">⚠️ مفيش لوحة مطابقة بالظبط لـ «' + escapeHtml(label) + '»<br>التطابق لازم يكون تام — مش أقرب نتيجة</div>';
+      if (opts.log) addScanLogEntry(parsed, false, null, '');
       return false;
     }
 
@@ -1533,6 +1738,7 @@
     }
     resultsEl.innerHTML = html;
 
+    if (opts.log) addScanLogEntry(parsed, true, list, fuzzyFrom);
     announceExactMatch(list);
     for (const r of list) {
       addHistoryEntry({
@@ -1560,7 +1766,7 @@
     }
     const parsed = parseSaudiPlateSpeech(rawCombined);
     setPlateFields(parsed);
-    debounceTimer = setTimeout(() => renderResults(rawCombined), 150);
+    debounceTimer = setTimeout(() => renderResults(rawCombined, { log: true }), 150);
   }
 
   lettersInput.addEventListener('input', handlePlateFieldInput);
@@ -1761,8 +1967,38 @@
     renderVoiceDiag();
   }
 
+  function pauseSearchForAlarm() {
+    pauseListeningForAlarm = true;
+    clearTimeout(idleResetTimer);
+    resetVoiceBuffer();
+    if (voiceEngineMode === 'gemini' && geminiSession && geminiSession.pauseSend) {
+      try { geminiSession.pauseSend(); } catch (e) { /* ignore */ }
+    } else if (micOpen) {
+      try { voiceStopEngine(); } catch (e) { /* ignore */ }
+    }
+    if (micLiveText) micLiveText.textContent = '⏸️ البحث متوقف — لوحة موجودة!';
+  }
+
+  async function resumeSearchAfterAlarm() {
+    pauseListeningForAlarm = false;
+    softRestarting = false;
+    lastSearchedToken = '';
+    resetVoiceBuffer();
+    if (!micOpen) return;
+    if (voiceEngineMode === 'gemini' && geminiSession && geminiSession.resumeSend) {
+      try { geminiSession.resumeSend(); } catch (e) { /* ignore */ }
+      micWarmupUntil = Date.now() + 800;
+    } else {
+      scheduleVoiceRestart(200);
+    }
+    if (micLiveText) micLiveText.textContent = 'المايك شغال الآن — استماع مستمر';
+    setListeningStatus(voiceOpenHint(), 'listening-text');
+    setMicUi(true);
+  }
+
   function onNewVoiceDetected() {
     if (Date.now() < micWarmupUntil) return;
+    if (pauseListeningForAlarm) return;
     clearPlateFields();
     resetVoiceBuffer();
     renderEmpty();
@@ -1851,7 +2087,7 @@
 
     setPlateFields(parsed);
     const display = formatPlateSpeechDisplay(parsed);
-    const found = renderResults(rawText || parsed.token, { allowFuzzy: true });
+    const found = renderResults(rawText || parsed.token, { allowFuzzy: true, log: true });
 
     geminiInputBuffer = '';
     finalTranscriptBuffer = '';
@@ -1862,19 +2098,19 @@
     }, 1800);
 
     if (found) {
-      const prefix = parsed.refined === 'fuzzy' ? '✅ صُحّحت: ' : '✅ سمعت: ';
-      setListeningStatus(prefix + display + ' — المايك لسه شغال', 'ok-text');
-      if (micLiveText) micLiveText.textContent = 'المايك شغال الآن — استماع مستمر';
-      setMicUi(true);
+      // Search is paused by announceExactMatch(); the popup must be closed to resume.
+      const prefix = parsed.refined === 'fuzzy' ? '🚨 صُحّحت ووُجدت: ' : '🚨 وُجدت: ';
+      setListeningStatus(prefix + display + ' — البحث متوقف، اقفل التنبيه للمتابعة', 'ok-text');
+      if (micLiveText) micLiveText.textContent = '⏸️ البحث متوقف — لوحة موجودة!';
     } else {
-      setListeningStatus('🔁 سمعت: ' + display + ' — مفيش تطابق، قول تاني', 'listening-text');
+      setListeningStatus('❌ ' + display + ' — غير موجودة، البحث مستمر', 'listening-text');
       setMicUi(true);
     }
     return true;
   }
 
   function processTranscriptCandidates(candidates) {
-    if (!micOpen) return;
+    if (!micOpen || pauseListeningForAlarm) return;
     const best = pickBestTranscript(candidates.filter(Boolean));
     if (best.text) finalTranscriptBuffer = best.text;
     setPlateFields(best.parsed);
@@ -1946,10 +2182,7 @@
   });
 
   onMatchPopupClosed = async () => {
-    // Mic stays open continuously — closing the popup must not restart/stop it.
-    pauseListeningForAlarm = false;
-    softRestarting = false;
-    if (micOpen) setListeningStatus(voiceOpenHint(), 'listening-text');
+    await resumeSearchAfterAlarm();
   };
 
   function setupGeminiSpeechEngine() {
@@ -2673,7 +2906,7 @@
       }
 
       setPlateFields(parsed);
-      const found = renderResults(text);
+      const found = renderResults(text, { log: true });
       const display = getPlateStatusLabel() || formatPlateSpeechDisplay(parsed);
       if (found) {
         statusLine.textContent = '✅ قريت: ' + display;

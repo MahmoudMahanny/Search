@@ -1,6 +1,6 @@
 {
-  "versionCode": 34,
-  "versionName": "0.1.33",
+  "versionCode": 35,
+  "versionName": "0.1.34",
   "apkUrl": "https://mahmoudmahanny.github.io/Search/downloads/lammah.apk",
-  "notes": "فلترة حروف اللوحة + مطابقة ذكية (تصحيح خطأ حرف/رقم واحد) للصوت."
+  "notes": "سجل اللوحات (أخضر=موجودة، أحمر=غير موجودة) + إيقاف البحث تلقائيًا مع إنذار وهزاز عند إيجاد لوحة."
 }
