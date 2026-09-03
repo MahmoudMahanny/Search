@@ -277,6 +277,7 @@
         throw new Error('المايك غير متاح على هذا الجهاز');
       }
       const attempts = [
+        { audio: true },
         {
           audio: {
             echoCancellation: true,
@@ -284,9 +285,7 @@
             autoGainControl: true,
             channelCount: 1
           }
-        },
-        // Some Android WebViews reject advanced constraints and return no tracks.
-        { audio: true }
+        }
       ];
       let lastErr = null;
       for (let i = 0; i < attempts.length; i++) {
@@ -307,8 +306,19 @@
           return stream;
         } catch (err) {
           lastErr = err;
-          emitEvent('mic_open_failed', { error: String(err && err.message ? err.message : err), attempt: i + 1 });
+          const msg = String(err && err.message ? err.message : err);
+          emitEvent('mic_open_failed', { error: msg, attempt: i + 1 });
+          // Don't keep retrying the same hard permission denial with different constraints.
+          if (/permission|denied|notallowed/i.test(msg) && i === 0) {
+            // still try the second constraint once; if both fail, throw below
+          }
         }
+      }
+      const msg = String(lastErr && lastErr.message ? lastErr.message : lastErr || '');
+      if (/permission|denied|notallowed/i.test(msg)) {
+        throw new Error(
+          'Permission denied — من إعدادات أندرويد: التطبيقات → لمّاح → الأذونات → الميكروفون ← اسمح، ثم اقفل التطبيق وافتحه تاني'
+        );
       }
       throw lastErr || new Error('تعذر فتح المايك');
     }

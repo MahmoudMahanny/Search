@@ -1,6 +1,6 @@
 {
-  "versionCode": 29,
-  "versionName": "0.1.28",
+  "versionCode": 30,
+  "versionName": "0.1.29",
   "apkUrl": "https://mahmoudmahanny.github.io/Search/downloads/lammah.apk",
-  "notes": "إصلاح ربط المايك: كان الاتصال ينجح بدون فتح الميكروفون. حدّث وثبّت ثم فعّل المايك."
+  "notes": "إصلاح Permission denied للمايك على أندرويد (WebView). بعد التثبيت: اسمح بالميكروفون ثم أعد فتح التطبيق."
 }

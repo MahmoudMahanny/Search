@@ -2077,16 +2077,21 @@
             const SR = window.Capacitor.registerPlugin('SpeechRecognition');
             let perm = await withRaceTimeout(SR.checkPermissions(), 2500, 'فحص إذن المايك');
             if (perm.speechRecognition !== 'granted') {
+              setListeningStatus('🎙️ لازم تسمح بإذن الميكروفون...', 'listening-text');
               perm = await withRaceTimeout(SR.requestPermissions(), 8000, 'طلب إذن المايك');
             }
             if (perm.speechRecognition !== 'granted') {
-              pushVoiceDiag('permission', 'إذن المايك مرفوض قبل فتح الصوت الحي');
-              throw new Error('محتاج إذن الميكروفون من إعدادات التطبيق');
+              pushVoiceDiag('permission', 'إذن المايك مرفوض من النظام');
+              throw new Error('محتاج إذن الميكروفون — التطبيقات → لمّاح → الأذونات → الميكروفون');
             }
-            pushVoiceDiag('permission', 'إذن المايك ممنوح');
+            pushVoiceDiag('permission', 'إذن المايك ممنوح من النظام');
+            // Give Android a moment to propagate runtime permission to WebView.
+            await delay(350);
           } catch (permErr) {
-            // If the plugin path fails, still try getUserMedia — but surface the reason.
             pushVoiceDiag('permission', String(permErr && permErr.message ? permErr.message : permErr));
+            if (/إذن الميكروفون|permission/i.test(String(permErr && permErr.message ? permErr.message : permErr))) {
+              throw permErr;
+            }
           }
         }
 
