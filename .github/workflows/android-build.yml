@@ -66,15 +66,25 @@ jobs:
           npm ci
           npm run cap:sync
 
-      - name: Build release APK
+      - name: Build signed debug APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Verify APK before publish
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          BT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools/34.0.0"
+          if [ ! -d "$BT" ]; then BT=$(ls -d "${ANDROID_SDK_ROOT:-$ANDROID_HOME}"/build-tools/* | tail -1); fi
+          "$BT/zipalign" -c -v 4 "$APK"
+          "$BT/apksigner" verify --verbose "$APK"
+          "$BT/aapt" dump badging "$APK" | head -5
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lammah-release-apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          name: lammah-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
       - name: Publish APK to GitHub Release (manual runs)
@@ -82,7 +92,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk lammah.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk lammah.apk
           gh release create "${{ steps.ver.outputs.tag }}" lammah.apk \
             --title "لمّاح Android ${{ steps.ver.outputs.version_name }}" \
             --notes "APK مباشر — حمّل **lammah.apk** من الموبايل.
@@ -97,7 +107,7 @@ jobs:
           VERSION_NAME=$(node -pe "JSON.parse(require('fs').readFileSync('android-version.json','utf8')).versionName")
           NOTES=$(node -pe "JSON.parse(require('fs').readFileSync('android-version.json','utf8')).notes || 'تحديث جديد'")
           TAG="android-v${VERSION_NAME}"
-          cp android/app/build/outputs/apk/release/app-release.apk lammah.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk lammah.apk
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" lammah.apk --clobber
           else
