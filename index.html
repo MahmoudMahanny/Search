@@ -734,6 +734,10 @@
     border-color: var(--danger);
     background: linear-gradient(180deg, rgba(224, 90, 90, 0.14), rgba(224, 90, 90, 0.05));
   }
+  .scan-row.fuzzy {
+    border-color: #e6a23c;
+    background: linear-gradient(180deg, rgba(230, 162, 60, 0.16), rgba(230, 162, 60, 0.05));
+  }
   .scan-row-mark {
     font-size: 17px;
     line-height: 1;
@@ -752,8 +756,10 @@
   }
   .scan-row.found .scan-row-plate { color: #63d97f; }
   .scan-row.missing .scan-row-plate { color: #ff9c9c; }
+  .scan-row.fuzzy .scan-row-plate { color: #f0b35a; }
   html[data-theme="light"] .scan-row.found .scan-row-plate { color: #1d7a35; }
   html[data-theme="light"] .scan-row.missing .scan-row-plate { color: #a32020; }
+  html[data-theme="light"] .scan-row.fuzzy .scan-row-plate { color: #9a5f00; }
   .scan-row-meta {
     font-size: 11.5px;
     color: var(--muted);
@@ -939,7 +945,7 @@
       <button type="button" id="scanLogClear" class="scan-log-clear">مسح السجل</button>
     </div>
     <div id="scanLogList" class="scan-log-list">
-      <div class="scan-log-empty">كل لوحة تبحث عنها هتظهر هنا — أخضر = موجودة، أحمر = غير موجودة</div>
+      <div class="scan-log-empty">كل لوحة تبحث عنها هتظهر هنا — أخضر = تطابق تام، برتقالي = اقتراح حروف، أحمر = غير موجودة</div>
     </div>
   </section>
 
@@ -1205,6 +1211,15 @@
     return d;
   }
 
+  // Voice fuzzy match: digits must match exactly — only letters may be corrected.
+  function plateLettersOnlyDistance(a, b) {
+    if (!a || !b || a.length < 7 || b.length < 7) return 99;
+    if (a.slice(3) !== b.slice(3)) return 99;
+    let d = 0;
+    for (let i = 0; i < 3; i++) d += letterSubstCost(a[i], b[i]);
+    return d;
+  }
+
   const FUZZY_MAX_DISTANCE = 1.01;
 
   function fuzzyMatchPlate(parsed) {
@@ -1217,7 +1232,7 @@
     const atMin = [];
     for (let i = 0; i < idx.allTokens.length; i++) {
       const np = idx.allTokens[i];
-      const dist = plateTokenDistance(token, np);
+      const dist = plateLettersOnlyDistance(token, np);
       if (dist > FUZZY_MAX_DISTANCE) continue;
       if (dist < minDist) {
         minDist = dist;
@@ -1574,27 +1589,29 @@
 
   function renderScanLog() {
     if (!scanLogListEl) return;
-    const hits = scanLog.filter(e => e.found).length;
-    const misses = scanLog.length - hits;
+    const hits = scanLog.filter(e => e.matchKind === 'exact').length;
+    const misses = scanLog.filter(e => e.matchKind === 'missing').length;
     if (scanHitCountEl) scanHitCountEl.textContent = hits.toLocaleString('ar-EG') + ' ✅';
     if (scanMissCountEl) scanMissCountEl.textContent = misses.toLocaleString('ar-EG') + ' ❌';
 
     if (!scanLog.length) {
       scanLogListEl.innerHTML =
-        '<div class="scan-log-empty">كل لوحة تبحث عنها هتظهر هنا — أخضر = موجودة، أحمر = غير موجودة</div>';
+        '<div class="scan-log-empty">كل لوحة تبحث عنها هتظهر هنا — أخضر = تطابق تام، برتقالي = اقتراح حروف، أحمر = غير موجودة</div>';
       return;
     }
 
     scanLogListEl.innerHTML = scanLog.map((e) => {
-      const cls = e.found ? 'found' : 'missing';
-      const mark = e.found ? '✅' : '❌';
+      const cls = e.matchKind === 'exact' ? 'found' : (e.matchKind === 'fuzzy' ? 'fuzzy' : 'missing');
+      const mark = e.matchKind === 'exact' ? '✅' : (e.matchKind === 'fuzzy' ? '🔶' : '❌');
       let meta;
-      if (e.found) {
+      if (e.matchKind === 'exact') {
         meta = [e.type, e.bank].filter(Boolean).join(' — ') || 'موجودة في قاعدة البيانات';
+      } else if (e.matchKind === 'fuzzy') {
+        meta = 'اقتراح: ' + (e.suggestedDisplay || '') + ' — الأرقام لازم تطابق بالظبط';
+        if (e.type || e.bank) meta += ' — ' + [e.type, e.bank].filter(Boolean).join(' — ');
       } else {
         meta = 'غير موجودة';
       }
-      if (e.correctedFrom) meta = '🔧 سمعنا: ' + e.correctedFrom + ' — ' + meta;
       return (
         '<div class="scan-row ' + cls + '">' +
           '<span class="scan-row-mark">' + mark + '</span>' +
@@ -1608,19 +1625,28 @@
     }).join('');
   }
 
-  function addScanLogEntry(parsed, found, records, correctedFrom) {
+  function addScanLogEntry(parsed, options) {
+    const opts = Object.assign({
+      matchKind: 'missing',
+      records: null,
+      heardParsed: null,
+      suggestedParsed: null
+    }, options || {});
+    const heard = opts.heardParsed || parsed;
+    const dedupeToken = heard.token || parsed.token;
     const last = scanLog[0];
     const now = Date.now();
-    if (last && last.token === parsed.token && now - last.at < 2500) return;
-    const primary = (records && records[0]) || null;
+    if (last && last.dedupeToken === dedupeToken && now - last.at < 2500) return;
+    const primary = (opts.records && opts.records[0]) || null;
     scanLog.unshift({
       token: parsed.token,
+      dedupeToken: dedupeToken,
       at: now,
-      display: plateDisplayToken(parsed),
-      found: !!found,
+      display: plateDisplayToken(heard),
+      suggestedDisplay: opts.suggestedParsed ? plateDisplayToken(opts.suggestedParsed) : '',
+      matchKind: opts.matchKind,
       type: primary ? primary.type : '',
       bank: primary ? primary.bank : '',
-      correctedFrom: correctedFrom || '',
       time: scanLogTime(new Date())
     });
     if (scanLog.length > SCAN_LOG_MAX) scanLog.length = SCAN_LOG_MAX;
@@ -1673,7 +1699,8 @@
 
   function renderResults(query, options) {
     const opts = Object.assign({ allowFuzzy: false, log: false }, options || {});
-    let parsed = sanitizePlateParsed(parseSaudiPlateSpeech(query));
+    const heardParsed = sanitizePlateParsed(parseSaudiPlateSpeech(query));
+    let parsed = heardParsed;
     let fuzzyFrom = '';
     setPlateFields(parsed);
 
@@ -1689,20 +1716,18 @@
     const idx = getPlateIndex();
     let list = (idx.lookup.get(parsed.token) || []).slice();
     let matchKind = 'exact';
+    let suggestedParsed = null;
 
     if (!list.length && opts.allowFuzzy) {
       const fuzzy = fuzzyMatchPlate(parsed);
       if (fuzzy) {
+        suggestedParsed = fuzzy.parsed;
         parsed = fuzzy.parsed;
         setPlateFields(parsed);
         list = fuzzy.records.slice();
         matchKind = 'fuzzy';
         if (fuzzy.originalToken !== fuzzy.parsed.token) {
-          const heard = formatPlateSpeechDisplay(sanitizePlateParsed({
-            letters: fuzzy.originalToken.slice(0, 3),
-            digits: fuzzy.originalToken.slice(3),
-            token: fuzzy.originalToken
-          }));
+          const heard = formatPlateSpeechDisplay(heardParsed);
           const fixed = formatPlateSpeechDisplay(parsed);
           fuzzyFrom = heard && fixed && heard !== fixed ? heard : '';
         }
@@ -1718,14 +1743,14 @@
     });
 
     if (list.length === 0) {
-      const label = formatPlateSpeechDisplay(parsed) || query;
+      const label = formatPlateSpeechDisplay(heardParsed) || query;
       resultsEl.innerHTML = '<div class="no-results">⚠️ مفيش لوحة مطابقة بالظبط لـ «' + escapeHtml(label) + '»<br>التطابق لازم يكون تام — مش أقرب نتيجة</div>';
-      if (opts.log) addScanLogEntry(parsed, false, null, '');
+      if (opts.log) addScanLogEntry(heardParsed, { matchKind: 'missing', heardParsed: heardParsed });
       return false;
     }
 
     const badge = matchKind === 'fuzzy'
-      ? '🔧 تطابق مصحّح' + (fuzzyFrom ? ' — سمعنا: «' + escapeHtml(fuzzyFrom) + '»' : '') + ' — ' + list.length + ' نتيجة'
+      ? '🔶 اقتراح حروف فقط' + (fuzzyFrom ? ' — سمعنا: «' + escapeHtml(fuzzyFrom) + '»' : '') + ' — الأرقام لازم تطابق'
       : '✅ تطابق تام — ' + list.length + ' نتيجة';
     let html = '<div class="count-badge">' + badge + '</div>';
     for (const r of list) {
@@ -1738,15 +1763,31 @@
     }
     resultsEl.innerHTML = html;
 
-    if (opts.log) addScanLogEntry(parsed, true, list, fuzzyFrom);
-    announceExactMatch(list);
-    for (const r of list) {
-      addHistoryEntry({
-        plate: r.plate, type: r.type, bank: r.bank, chassis: r.chassis,
-        matchedBy: 'plate', searchedAt: new Date().toISOString()
-      }).catch(() => {});
+    if (opts.log) {
+      if (matchKind === 'exact') {
+        addScanLogEntry(parsed, { matchKind: 'exact', records: list, heardParsed: heardParsed });
+      } else {
+        addScanLogEntry(heardParsed, {
+          matchKind: 'fuzzy',
+          records: list,
+          heardParsed: heardParsed,
+          suggestedParsed: suggestedParsed
+        });
+      }
     }
-    return true;
+
+    if (matchKind === 'exact') {
+      announceExactMatch(list);
+      for (const r of list) {
+        addHistoryEntry({
+          plate: r.plate, type: r.type, bank: r.bank, chassis: r.chassis,
+          matchedBy: 'plate', searchedAt: new Date().toISOString()
+        }).catch(() => {});
+      }
+      return 'exact';
+    }
+
+    return 'fuzzy';
   }
 
   function fieldRow(label, value) {
@@ -2080,30 +2121,35 @@
   }
 
   function handleVoicePlate(parsed, rawText) {
-    parsed = refinePlateWithDB(normalizePlateParts(parsed.letters, parsed.digits));
+    const heardParsed = normalizePlateParts(parsed.letters, parsed.digits);
+    parsed = refinePlateWithDB(heardParsed);
     if (parsed.letters.length !== 3 || parsed.digits.length !== 4) return false;
-    if (parsed.token === lastSearchedToken) return false;
-    lastSearchedToken = parsed.token;
+    const searchKey = heardParsed.token || parsed.token;
+    if (searchKey === lastSearchedToken) return false;
+    lastSearchedToken = searchKey;
 
     setPlateFields(parsed);
-    const display = formatPlateSpeechDisplay(parsed);
-    const found = renderResults(rawText || parsed.token, { allowFuzzy: true, log: true });
+    const heardDisplay = formatPlateSpeechDisplay(heardParsed);
+    const matchResult = renderResults(rawText || heardParsed.token, { allowFuzzy: true, log: true });
 
     geminiInputBuffer = '';
     finalTranscriptBuffer = '';
 
     clearTimeout(restartTimer);
     restartTimer = setTimeout(() => {
-      if (lastSearchedToken === parsed.token) lastSearchedToken = '';
+      if (lastSearchedToken === searchKey) lastSearchedToken = '';
     }, 1800);
 
-    if (found) {
+    if (matchResult === 'exact') {
       // Search is paused by announceExactMatch(); the popup must be closed to resume.
-      const prefix = parsed.refined === 'fuzzy' ? '🚨 صُحّحت ووُجدت: ' : '🚨 وُجدت: ';
-      setListeningStatus(prefix + display + ' — البحث متوقف، اقفل التنبيه للمتابعة', 'ok-text');
+      setListeningStatus('🚨 وُجدت: ' + heardDisplay + ' — البحث متوقف، اقفل التنبيه للمتابعة', 'ok-text');
       if (micLiveText) micLiveText.textContent = '⏸️ البحث متوقف — لوحة موجودة!';
+    } else if (matchResult === 'fuzzy') {
+      const suggested = formatPlateSpeechDisplay(parsed);
+      setListeningStatus('🔶 ' + heardDisplay + ' — اقتراح حروف: ' + suggested + ' — البحث مستمر', 'listening-text');
+      setMicUi(true);
     } else {
-      setListeningStatus('❌ ' + display + ' — غير موجودة، البحث مستمر', 'listening-text');
+      setListeningStatus('❌ ' + heardDisplay + ' — غير موجودة، البحث مستمر', 'listening-text');
       setMicUi(true);
     }
     return true;
