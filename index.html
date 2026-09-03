@@ -871,6 +871,7 @@
 <script src="capacitor.js"></script>
 <script src="db.js"></script>
 <script src="update.js"></script>
+<script src="gemini-plate-examples.js"></script>
 <script src="gemini-voice.js"></script>
 <script>
 (async function () {
@@ -1286,6 +1287,10 @@
   // Pick the STT alternative most likely to be a valid Saudi plate.
   function scorePlateTranscript(text) {
     return scorePlateCandidate(parseSaudiPlateSpeech(text));
+  }
+
+  function containsHebrew(text) {
+    return /[\u0590-\u05FF]/.test(String(text || ''));
   }
 
   function renderEmpty() {
@@ -1722,7 +1727,11 @@
       const live = formatPlateSpeechDisplay(best.parsed);
       if (live) setListeningStatus('🎙️ ' + live, 'listening-text');
     } else if (micOpen && best.text) {
-      setListeningStatus('🎙️ ' + best.text.slice(0, 48), 'listening-text');
+      if (voiceEngineMode === 'gemini' && containsHebrew(best.text)) {
+        setListeningStatus(voiceOpenHint(), 'listening-text');
+      } else {
+        setListeningStatus('🎙️ ' + best.text.slice(0, 48), 'listening-text');
+      }
     }
 
     clearTimeout(idleResetTimer);
@@ -1833,7 +1842,7 @@
       onTranscript: (text, isFinalish) => {
         if (!micOpen) return;
         const t = String(text || '').trim();
-        if (!t) return;
+        if (!t || containsHebrew(t)) return;
         onNewVoiceDetected();
         // Live stream transcription
         if (!isFinalish) {
