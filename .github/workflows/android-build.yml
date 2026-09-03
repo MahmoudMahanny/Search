@@ -66,15 +66,15 @@ jobs:
           npm ci
           npm run cap:sync
 
-      - name: Build debug APK
+      - name: Build release APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleRelease --no-daemon
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lammah-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: lammah-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
       - name: Publish APK to GitHub Release (manual runs)
@@ -82,7 +82,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk lammah.apk
+          cp android/app/build/outputs/apk/release/app-release.apk lammah.apk
           gh release create "${{ steps.ver.outputs.tag }}" lammah.apk \
             --title "لمّاح Android ${{ steps.ver.outputs.version_name }}" \
             --notes "APK مباشر — حمّل **lammah.apk** من الموبايل.
@@ -97,7 +97,7 @@ jobs:
           VERSION_NAME=$(node -pe "JSON.parse(require('fs').readFileSync('android-version.json','utf8')).versionName")
           NOTES=$(node -pe "JSON.parse(require('fs').readFileSync('android-version.json','utf8')).notes || 'تحديث جديد'")
           TAG="android-v${VERSION_NAME}"
-          cp android/app/build/outputs/apk/debug/app-debug.apk lammah.apk
+          cp android/app/build/outputs/apk/release/app-release.apk lammah.apk
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" lammah.apk --clobber
           else

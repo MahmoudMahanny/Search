@@ -1,6 +1,6 @@
 {
-  "versionCode": 23,
-  "versionName": "0.1.22",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.22/lammah.apk",
-  "notes": "إعادة اتصال تلقائية عند انقطاع المايك + لوحة تشخيص على الشاشة"
+  "versionCode": 24,
+  "versionName": "0.1.23",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.23/lammah.apk",
+  "notes": "إصلاح تثبيت التحديث — إن فشل التثبيت: احذف النسخة القديمة أولاً ثم ثبّت من جديد"
 }

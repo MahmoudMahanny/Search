@@ -77,7 +77,7 @@
     if (!banner || !msg || !btn) return false;
 
     msg.textContent = (remote.version ? 'الإصدار v' + remote.version + ' — ' : '') +
-      (remote.notes || 'حمّل النسخة الجديدة وثبّتها فوق القديمة.');
+      (remote.notes || 'حمّل النسخة الجديدة. إن فشل التثبيت: احذف التطبيق القديم أولاً ثم ثبّت من جديد.');
     banner.classList.add('visible');
     document.body.classList.add('has-update-banner');
 
