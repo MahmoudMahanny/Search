@@ -1,6 +1,6 @@
 {
-  "versionCode": 28,
-  "versionName": "0.1.27",
+  "versionCode": 29,
+  "versionName": "0.1.28",
   "apkUrl": "https://mahmoudmahanny.github.io/Search/downloads/lammah.apk",
-  "notes": "إصلاح Parsing failed (توقيع SHA256). احذف الملفات القديمة وثبّت 0.1.27 فقط."
+  "notes": "إصلاح ربط المايك: كان الاتصال ينجح بدون فتح الميكروفون. حدّث وثبّت ثم فعّل المايك."
 }

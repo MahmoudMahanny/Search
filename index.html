@@ -1553,9 +1553,10 @@
     voiceDiagPanel.classList.toggle('warn-state', !ok);
 
     if (voiceDiagSummary) {
+      const engine = voiceEngineMode ? (' [' + voiceEngineMode + ']') : '';
       voiceDiagSummary.textContent = d.reconnecting
-        ? 'يعيد الاتصال (' + d.reconnectAttempts + ')'
-        : (ok ? 'يعمل بشكل طبيعي' : 'يحتاج انتباه');
+        ? 'يعيد الاتصال (' + d.reconnectAttempts + ')' + engine
+        : ((ok ? 'يعمل بشكل طبيعي' : 'يحتاج انتباه') + engine);
     }
 
     if (voiceDiagGrid) {
@@ -2068,6 +2069,27 @@
     const startGemini = async () => {
       if (!window.LammahGeminiVoice || !window.LammahGeminiVoice.isConfigured()) return false;
       try {
+        // On Android, request mic/speech permission BEFORE getUserMedia,
+        // otherwise WebView often connects Gemini with micTrack=none.
+        if (isCapacitorAndroidHost() && window.Capacitor?.registerPlugin) {
+          try {
+            await waitForCapacitor(2500);
+            const SR = window.Capacitor.registerPlugin('SpeechRecognition');
+            let perm = await withRaceTimeout(SR.checkPermissions(), 2500, 'فحص إذن المايك');
+            if (perm.speechRecognition !== 'granted') {
+              perm = await withRaceTimeout(SR.requestPermissions(), 8000, 'طلب إذن المايك');
+            }
+            if (perm.speechRecognition !== 'granted') {
+              pushVoiceDiag('permission', 'إذن المايك مرفوض قبل فتح الصوت الحي');
+              throw new Error('محتاج إذن الميكروفون من إعدادات التطبيق');
+            }
+            pushVoiceDiag('permission', 'إذن المايك ممنوح');
+          } catch (permErr) {
+            // If the plugin path fails, still try getUserMedia — but surface the reason.
+            pushVoiceDiag('permission', String(permErr && permErr.message ? permErr.message : permErr));
+          }
+        }
+
         if (!setupGeminiSpeechEngine()) return false;
         micOpen = true;
         pauseListeningForAlarm = false;
@@ -2078,9 +2100,20 @@
         geminiInputBuffer = '';
         setListeningStatus('🎙️ جارٍ تجهيز المايك...', 'listening-text');
         await voiceStartEngine();
+
+        // Verify mic actually attached — WS alone is not enough.
+        const diag = geminiSession && geminiSession.getDiagnostics ? geminiSession.getDiagnostics() : null;
+        if (diag) {
+          renderVoiceDiag(diag);
+          if (diag.micTrack !== 'live' || diag.audioContext === 'none') {
+            pushVoiceDiag('mic', 'الاتصال تم لكن المايك= ' + diag.micTrack + ' / الصوت= ' + diag.audioContext);
+            throw new Error('المايك لم يُربَط بعد الاتصال — هحاول وضع بديل');
+          }
+        }
         return true;
       } catch (err) {
         console.warn('primary voice failed, falling back', err);
+        pushVoiceDiag('fallback', String(err && err.message ? err.message : err));
         try { if (geminiSession) geminiSession.stop(); } catch (e) {}
         geminiSession = null;
         voiceEngineMode = '';

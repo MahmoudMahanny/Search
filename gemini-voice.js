@@ -273,19 +273,44 @@
     }
 
     async function openMicStream() {
-      return Promise.race([
-        navigator.mediaDevices.getUserMedia({
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('المايك غير متاح على هذا الجهاز');
+      }
+      const attempts = [
+        {
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
             channelCount: 1
           }
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('انتهت مهلة فتح المايك')), 8000)
-        )
-      ]);
+        },
+        // Some Android WebViews reject advanced constraints and return no tracks.
+        { audio: true }
+      ];
+      let lastErr = null;
+      for (let i = 0; i < attempts.length; i++) {
+        try {
+          const stream = await Promise.race([
+            navigator.mediaDevices.getUserMedia(attempts[i]),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('انتهت مهلة فتح المايك')), 8000)
+            )
+          ]);
+          const tracks = stream.getAudioTracks();
+          if (!tracks.length) {
+            stream.getTracks().forEach((t) => t.stop());
+            lastErr = new Error('تم فتح المايك بدون مسار صوت');
+            continue;
+          }
+          emitEvent('mic_opened', { tracks: tracks.length, label: tracks[0].label || '' });
+          return stream;
+        } catch (err) {
+          lastErr = err;
+          emitEvent('mic_open_failed', { error: String(err && err.message ? err.message : err), attempt: i + 1 });
+        }
+      }
+      throw lastErr || new Error('تعذر فتح المايك');
     }
 
     function watchMicTrack(track) {
@@ -305,17 +330,23 @@
     }
 
     async function attachMic(stream) {
+      if (!stream) throw new Error('لا يوجد بث مايك');
       if (mediaStream && mediaStream !== stream) {
         mediaStream.getTracks().forEach((t) => t.stop());
       }
       mediaStream = stream;
       const track = stream.getAudioTracks()[0];
+      if (!track) throw new Error('مسار المايك غير موجود');
       watchMicTrack(track);
+      try { track.enabled = true; } catch (e) { /* ignore */ }
 
       if (!audioContext || audioContext.state === 'closed') {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
       }
       if (audioContext.state === 'suspended') {
+        try { await audioContext.resume(); } catch (e) { /* ignore */ }
+      }
+      if (audioContext.state !== 'running') {
         try { await audioContext.resume(); } catch (e) { /* ignore */ }
       }
 
@@ -334,7 +365,8 @@
       let lastActivityTime = 0;
       const onAudioFloat = (float32) => {
         if (!running || sendingPaused) return;
-        if (!setupDone) return;
+        // Queue audio even before setup finishes so first words aren't lost,
+        // but only flush after setupDone (flushPcm already checks that).
         if (float32 && float32.length) {
           let sum = 0;
           const step = Math.max(1, Math.floor(float32.length / 32));
@@ -352,6 +384,7 @@
             }
           }
         }
+        if (!setupDone) return;
         queuePcm(downsampleTo16k(float32, inputRate));
       };
 
@@ -386,6 +419,9 @@
 
       if (!flushTimer) {
         flushTimer = setInterval(() => flushPcm(true), 20);
+      }
+      if (micTrackState() !== 'live') {
+        throw new Error('المايك لم يصبح جاهزًا بعد الربط');
       }
       emitEvent('mic_attached', { audioContext: audioContext.state, micTrack: micTrackState() });
     }
@@ -622,8 +658,24 @@
           }
         }
 
-        if (diag.micTrack === 'ended') {
-          scheduleReconnect('المسار الصوتي للمايك انتهى');
+        if (diag.micTrack === 'ended' || diag.micTrack === 'none') {
+          noteIssue('المايك غير مربوط — أعيد فتحه');
+          try {
+            await ensureMicReady();
+            emitEvent('mic_recovered', { micTrack: micTrackState(), audioContext: audioContext ? audioContext.state : 'none' });
+          } catch (e) {
+            scheduleReconnect('فشل إعادة فتح المايك');
+          }
+          return;
+        }
+
+        if (diag.audioContext === 'none' && running) {
+          noteIssue('مسار الصوت غير موجود — أعيد ربط المايك');
+          try {
+            await ensureMicReady();
+          } catch (e) {
+            scheduleReconnect('فشل إعادة ربط مسار الصوت');
+          }
           return;
         }
 
@@ -653,7 +705,15 @@
     async function start() {
       if (running && setupDone && ws && ws.readyState === WebSocket.OPEN) {
         sendingPaused = false;
+        try {
+          await ensureMicReady();
+        } catch (e) {
+          noteIssue('الاتصال موجود لكن المايك توقف — ' + (e.message || e));
+          scheduleReconnect(String(e.message || e));
+          return;
+        }
         onStatus('listening');
+        emitEvent('already_running', getDiagnostics());
         return;
       }
       if (!getApiKey()) throw new Error('التعرف الصوتي غير متاح حاليًا');
@@ -669,22 +729,43 @@
       reconnecting = false;
       clearReconnectTimer();
 
-      const micPromise = openMicStream();
+      // Mic FIRST — if permission/capture fails, don't leave a half-open WS.
+      let stream;
+      try {
+        stream = await openMicStream();
+        await attachMic(stream);
+        emitEvent('mic_ready_before_ws', getDiagnostics());
+      } catch (err) {
+        running = false;
+        stopMic();
+        throw err;
+      }
+
       try {
         await connectFastWithWatch();
       } catch (err) {
         running = false;
-        try {
-          const s = await micPromise;
-          s.getTracks().forEach((t) => t.stop());
-        } catch (e) { /* ignore */ }
+        stopMic();
         throw err;
       }
 
-      const stream = await micPromise;
-      await attachMic(stream);
+      // Re-assert mic after WS setup (some Android WebViews suspend audio during connect).
+      try {
+        await ensureMicReady();
+      } catch (err) {
+        running = false;
+        closeWs();
+        stopMic();
+        throw err;
+      }
+
       startHealthWatch();
       onStatus('listening');
+      emitEvent('listening_ready', getDiagnostics());
+      if (micTrackState() !== 'live') {
+        noteIssue('المايك ما زال غير جاهز بعد الاتصال');
+        scheduleReconnect('المايك غير جاهز بعد الاتصال');
+      }
     }
 
     function pauseSend() {
