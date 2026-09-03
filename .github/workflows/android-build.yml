@@ -68,25 +68,48 @@ jobs:
           npm ci
           npm run cap:sync
 
-      - name: Build signed debug APK
+      - name: Build signed release APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleRelease --no-daemon
 
-      - name: Verify APK before publish
+      - name: Re-sign APK for maximum device compatibility
         run: |
-          APK=android/app/build/outputs/apk/debug/app-debug.apk
-          test -s "$APK"
+          set -e
           BT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools/34.0.0"
-          if [ ! -d "$BT" ]; then BT=$(ls -d "${ANDROID_SDK_ROOT:-$ANDROID_HOME}"/build-tools/* | tail -1); fi
-          "$BT/zipalign" -c -v 4 "$APK"
-          "$BT/apksigner" verify --verbose "$APK"
-          "$BT/aapt" dump badging "$APK" | head -5
+          if [ ! -d "$BT" ]; then BT=$(ls -d "${ANDROID_SDK_ROOT:-$ANDROID_HOME}"/build-tools/* | sort -V | tail -1); fi
+          SRC=android/app/build/outputs/apk/release/app-release.apk
+          UNSIGNED=/tmp/lammah-unsigned.apk
+          ALIGNED=/tmp/lammah-aligned.apk
+          OUT=android/app/build/outputs/apk/release/app-release.apk
+          cp "$SRC" "$UNSIGNED"
+          # Strip any existing signatures then realign + resign with SHA256
+          zip -d "$UNSIGNED" 'META-INF/*.SF' 'META-INF/*.RSA' 'META-INF/*.DSA' 'META-INF/MANIFEST.MF' 2>/dev/null || true
+          "$BT/zipalign" -f -p 4 "$UNSIGNED" "$ALIGNED"
+          "$BT/apksigner" sign \
+            --ks android/lammah-release.jks \
+            --ks-pass pass:lammahrelease \
+            --ks-key-alias lammah \
+            --key-pass pass:lammahrelease \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled false \
+            --v4-signing-enabled false \
+            --out "$OUT" \
+            "$ALIGNED"
+          "$BT/zipalign" -c -v 4 "$OUT"
+          "$BT/apksigner" verify --verbose "$OUT"
+          "$BT/aapt" dump badging "$OUT" | head -6
+          # Fail if still debuggable
+          if "$BT/aapt" dump xmltree "$OUT" AndroidManifest.xml | grep -q 'android:debuggable.*0xffffffff'; then
+            echo "APK is still debuggable" >&2
+            exit 1
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lammah-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: lammah-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
       - name: Publish APK to GitHub Release (manual runs)
@@ -94,7 +117,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk lammah.apk
+          cp android/app/build/outputs/apk/release/app-release.apk lammah.apk
           gh release create "${{ steps.ver.outputs.tag }}" lammah.apk \
             --title "لمّاح Android ${{ steps.ver.outputs.version_name }}" \
             --notes "APK مباشر — حمّل **lammah.apk** من الموبايل.
@@ -110,7 +133,7 @@ jobs:
           NOTES=$(node -pe "JSON.parse(require('fs').readFileSync('android-version.json','utf8')).notes || 'تحديث جديد'")
           TAG="android-v${VERSION_NAME}"
           mkdir -p downloads
-          cp android/app/build/outputs/apk/debug/app-debug.apk "downloads/lammah-${VERSION_NAME}.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "downloads/lammah-${VERSION_NAME}.apk"
           cp "downloads/lammah-${VERSION_NAME}.apk" downloads/lammah.apk
           cp downloads/lammah.apk "lammah-${VERSION_NAME}.apk"
           cp downloads/lammah.apk lammah.apk

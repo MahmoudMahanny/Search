@@ -1,6 +1,6 @@
 {
-  "versionCode": 27,
-  "versionName": "0.1.26",
+  "versionCode": 28,
+  "versionName": "0.1.27",
   "apkUrl": "https://mahmoudmahanny.github.io/Search/downloads/lammah.apk",
-  "notes": "تثبيت نظيف. احذف لمّاح القديم، امسح ملفات APK القديمة، ثم حمّل من الرابط. لازم تشوف Version 0.1.26 وحجم ≈ 6.5 ميجا."
+  "notes": "إصلاح Parsing failed (توقيع SHA256). احذف الملفات القديمة وثبّت 0.1.27 فقط."
 }
