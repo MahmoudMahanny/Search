@@ -89,6 +89,23 @@ jobs:
 
           المستخدمون الحاليون: افتحوا التطبيق واضغطوا **«تحديث الآن»** في الإشعار."
 
+      - name: Publish APK to GitHub Release (main push)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION_NAME=$(node -pe "JSON.parse(require('fs').readFileSync('android-version.json','utf8')).versionName")
+          NOTES=$(node -pe "JSON.parse(require('fs').readFileSync('android-version.json','utf8')).notes || 'تحديث جديد'")
+          TAG="android-v${VERSION_NAME}"
+          cp android/app/build/outputs/apk/debug/app-debug.apk lammah.apk
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" lammah.apk --clobber
+          else
+            gh release create "$TAG" lammah.apk \
+              --title "لمّاح Android ${VERSION_NAME}" \
+              --notes "$NOTES"
+          fi
+
       - name: Commit version manifest after release
         if: github.event_name == 'workflow_dispatch'
         run: |
