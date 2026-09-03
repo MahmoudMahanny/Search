@@ -16,7 +16,6 @@
   const WS_BASE =
     'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
 
-  // Short instruction = faster first token / tool call.
   const SYSTEM_INSTRUCTION =
     'استخرج لوحات سعودية من الكلام فورًا.\n' +
     'عند سماع 3 حروف عربية + 4 أرقام استدعِ check_saudi_plate مباشرة بدون انتظار أو شرح.\n' +
@@ -44,6 +43,30 @@
 
   function isEnabled() { return true; }
   function isConfigured() { return !!getApiKey(); }
+
+  function wsStateLabel(ws) {
+    if (!ws) return 'none';
+    if (ws.readyState === WebSocket.CONNECTING) return 'connecting';
+    if (ws.readyState === WebSocket.OPEN) return 'open';
+    if (ws.readyState === WebSocket.CLOSING) return 'closing';
+    return 'closed';
+  }
+
+  function formatCloseReason(ev) {
+    const code = ev && ev.code ? ev.code : 0;
+    const reason = ev && ev.reason ? String(ev.reason).trim() : '';
+    const map = {
+      1000: 'إغلاق طبيعي من الخادم',
+      1001: 'الخادم أغلق الاتصال (مغادرة)',
+      1006: 'انقطاع مفاجئ — غالبًا شبكة أو خلفية التطبيق',
+      1008: 'الخادم رفض الطلب (سياسة/مفتاح)',
+      1011: 'خطأ داخلي في الخادم',
+      1012: 'الخدمة غير متاحة مؤقتًا',
+      1013: 'حمل زائد على الخادم'
+    };
+    const base = map[code] || ('انقطع الاتصال (كود ' + code + ')');
+    return reason ? base + ' — ' + reason : base;
+  }
 
   function floatTo16BitPCM(float32Array) {
     const buffer = new ArrayBuffer(float32Array.length * 2);
@@ -91,6 +114,7 @@
     const onPlate = handlers.onPlate || function () {};
     const onError = handlers.onError || function () {};
     const onSpeechActivity = handlers.onSpeechActivity || function () {};
+    const onEvent = handlers.onEvent || function () {};
 
     let ws = null;
     let audioContext = null;
@@ -106,7 +130,23 @@
     let pcmQueue = [];
     let pcmQueuedSamples = 0;
     let flushTimer = null;
-    const TARGET_SAMPLES = 320; // 20ms @ 16kHz — low latency, fewer WS frames
+    let healthTimer = null;
+    let reconnectTimer = null;
+    let reconnecting = false;
+    let reconnectAttempts = 0;
+    let lastPcmSentAt = 0;
+    let lastServerMsgAt = 0;
+    let lastIssue = '';
+    const TARGET_SAMPLES = 320;
+
+    function emitEvent(type, detail) {
+      try { onEvent(type, detail || {}); } catch (e) { /* ignore */ }
+    }
+
+    function noteIssue(msg) {
+      lastIssue = String(msg || '');
+      emitEvent('issue', { message: lastIssue });
+    }
 
     function sendJson(obj) {
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
@@ -132,6 +172,7 @@
           }
         }
       });
+      lastPcmSentAt = Date.now();
     }
 
     function queuePcm(float16k) {
@@ -146,9 +187,11 @@
     }
 
     function handleServerMessage(msg) {
+      lastServerMsgAt = Date.now();
       if (msg.setupComplete) {
         setupDone = true;
         onStatus('connected');
+        emitEvent('setup_complete', { model: modelName });
         return;
       }
 
@@ -201,6 +244,34 @@
       }
     }
 
+    function micTrackState() {
+      if (!mediaStream) return 'none';
+      const tracks = mediaStream.getAudioTracks();
+      if (!tracks.length) return 'none';
+      const t = tracks[0];
+      if (t.readyState === 'ended') return 'ended';
+      if (t.muted) return 'muted';
+      if (!t.enabled) return 'disabled';
+      return 'live';
+    }
+
+    function getDiagnostics() {
+      return {
+        running,
+        setupDone,
+        reconnecting,
+        reconnectAttempts,
+        model: modelName,
+        ws: wsStateLabel(ws),
+        audioContext: audioContext ? audioContext.state : 'none',
+        micTrack: micTrackState(),
+        sendingPaused,
+        lastPcmSentAt,
+        lastServerMsgAt,
+        lastIssue
+      };
+    }
+
     async function openMicStream() {
       return Promise.race([
         navigator.mediaDevices.getUserMedia({
@@ -217,16 +288,53 @@
       ]);
     }
 
+    function watchMicTrack(track) {
+      if (!track) return;
+      track.onended = () => {
+        if (!running || intentionalClose) return;
+        const msg = 'مسار المايك توقف — سأعيد فتحه تلقائيًا';
+        noteIssue(msg);
+        emitEvent('mic_ended', {});
+        scheduleReconnect(msg);
+      };
+      track.onmute = () => {
+        if (!running || intentionalClose) return;
+        noteIssue('المايك مكتوم من النظام');
+        emitEvent('mic_muted', {});
+      };
+    }
+
     async function attachMic(stream) {
+      if (mediaStream && mediaStream !== stream) {
+        mediaStream.getTracks().forEach((t) => t.stop());
+      }
       mediaStream = stream;
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      if (audioContext.state === 'suspended') await audioContext.resume();
+      const track = stream.getAudioTracks()[0];
+      watchMicTrack(track);
+
+      if (!audioContext || audioContext.state === 'closed') {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioContext.state === 'suspended') {
+        try { await audioContext.resume(); } catch (e) { /* ignore */ }
+      }
+
+      try {
+        if (workletNode) workletNode.disconnect();
+        if (processor) processor.disconnect();
+        if (source) source.disconnect();
+      } catch (e) { /* ignore */ }
+      workletNode = null;
+      processor = null;
+      source = null;
+
       source = audioContext.createMediaStreamSource(mediaStream);
       const inputRate = audioContext.sampleRate || 48000;
 
       let lastActivityTime = 0;
       const onAudioFloat = (float32) => {
-        if (!running || !setupDone || sendingPaused) return;
+        if (!running || sendingPaused) return;
+        if (!setupDone) return;
         if (float32 && float32.length) {
           let sum = 0;
           const step = Math.max(1, Math.floor(float32.length / 32));
@@ -279,6 +387,7 @@
       if (!flushTimer) {
         flushTimer = setInterval(() => flushPcm(true), 20);
       }
+      emitEvent('mic_attached', { audioContext: audioContext.state, micTrack: micTrackState() });
     }
 
     function stopMic() {
@@ -304,6 +413,17 @@
         try { audioContext.close(); } catch (e) { /* ignore */ }
         audioContext = null;
       }
+    }
+
+    function closeWs() {
+      try {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          sendJson({ realtimeInput: { audioStreamEnd: true } });
+        }
+      } catch (e) { /* ignore */ }
+      try { if (ws) ws.close(); } catch (e) { /* ignore */ }
+      ws = null;
+      setupDone = false;
     }
 
     function buildSetup(name) {
@@ -341,10 +461,11 @@
 
     function connectOnce(name) {
       return new Promise((resolve, reject) => {
+        closeWs();
         intentionalClose = false;
-        setupDone = false;
         const url = WS_BASE + '?key=' + encodeURIComponent(getApiKey());
         ws = new WebSocket(url);
+        emitEvent('ws_connecting', { model: name });
 
         const timer = setTimeout(() => {
           try { ws.close(); } catch (e) { /* ignore */ }
@@ -376,16 +497,15 @@
 
         ws.onclose = (ev) => {
           clearTimeout(timer);
-          const wasRunning = running;
-          running = false;
-          stopMic();
-          if (!setupDone) {
-            reject(new Error(ev.reason || 'أُغلق الاتصال قبل اكتمال الإعداد'));
+          const wasSetup = setupDone;
+          setupDone = false;
+          ws = null;
+          if (!wasSetup) {
+            reject(new Error(formatCloseReason(ev)));
             return;
           }
-          if (!intentionalClose && wasRunning) {
-            onStatus('disconnected');
-            onError(new Error('انقطع الاتصال الصوتي'));
+          if (!intentionalClose && running) {
+            onUnexpectedDisconnect(ev);
           }
         };
       });
@@ -397,14 +517,137 @@
       for (let i = 0; i < models.length; i++) {
         try {
           await connectOnce(models[i]);
+          emitEvent('ws_connected', { model: models[i] });
           return;
         } catch (err) {
           lastErr = err;
-          try { if (ws) ws.close(); } catch (e) { /* ignore */ }
-          ws = null;
+          emitEvent('ws_failed', { model: models[i], error: String(err.message || err) });
         }
       }
       throw lastErr || new Error('فشل الاتصال الصوتي');
+    }
+
+    async function ensureMicReady() {
+      const trackOk = micTrackState() === 'live';
+      if (!trackOk) {
+        emitEvent('mic_reopen', {});
+        stopMic();
+        const stream = await openMicStream();
+        await attachMic(stream);
+        return;
+      }
+      if (audioContext && audioContext.state === 'suspended') {
+        try {
+          await audioContext.resume();
+          emitEvent('audio_resumed', { state: audioContext.state });
+        } catch (e) {
+          noteIssue('تعذر إيقاظ مسار الصوت — ' + (e.message || e));
+        }
+      }
+      if (!source || (!workletNode && !processor)) {
+        await attachMic(mediaStream);
+      }
+    }
+
+    function clearReconnectTimer() {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    }
+
+    function scheduleReconnect(reason) {
+      if (intentionalClose || !running || reconnecting) return;
+      const msg = String(reason || 'انقطع الاتصال الصوتي');
+      noteIssue(msg);
+      onStatus('reconnecting');
+      onError(new Error(msg + ' — جارٍ إعادة الاتصال تلقائيًا'));
+      emitEvent('reconnect_scheduled', { reason: msg, attempt: reconnectAttempts + 1 });
+
+      clearReconnectTimer();
+      const delay = Math.min(350 + reconnectAttempts * 500, 5500);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        attemptReconnect(msg);
+      }, delay);
+    }
+
+    async function attemptReconnect(reason) {
+      if (intentionalClose || !running) return;
+      if (reconnecting) return;
+      reconnecting = true;
+      reconnectAttempts++;
+      emitEvent('reconnecting', { attempt: reconnectAttempts, reason });
+
+      try {
+        await ensureMicReady();
+        await connectFast();
+        reconnectAttempts = 0;
+        reconnecting = false;
+        lastIssue = '';
+        onStatus('listening');
+        emitEvent('reconnected', {});
+      } catch (err) {
+        reconnecting = false;
+        const errMsg = String(err && err.message ? err.message : err);
+        noteIssue('فشل إعادة الاتصال: ' + errMsg);
+        emitEvent('reconnect_failed', { error: errMsg, attempt: reconnectAttempts });
+        scheduleReconnect(errMsg);
+      }
+    }
+
+    function onUnexpectedDisconnect(ev) {
+      if (intentionalClose || !running) return;
+      const reason = formatCloseReason(ev);
+      emitEvent('ws_closed', { code: ev.code, reason: reason });
+      scheduleReconnect(reason);
+    }
+
+    function startHealthWatch() {
+      if (healthTimer) return;
+      healthTimer = setInterval(async () => {
+        if (!running || intentionalClose) return;
+
+        const diag = getDiagnostics();
+        emitEvent('health', diag);
+
+        if (diag.audioContext === 'suspended') {
+          noteIssue('مسار الصوت موقوف — أحاول إيقاظه');
+          try {
+            if (audioContext) await audioContext.resume();
+            emitEvent('audio_resumed', { state: audioContext ? audioContext.state : 'none' });
+          } catch (e) {
+            scheduleReconnect('مسار الصوت موقوف');
+            return;
+          }
+        }
+
+        if (diag.micTrack === 'ended') {
+          scheduleReconnect('المسار الصوتي للمايك انتهى');
+          return;
+        }
+
+        if (setupDone && diag.ws !== 'open') {
+          scheduleReconnect('انقطع اتصال الخادم أثناء الاستماع');
+          return;
+        }
+
+        if (setupDone && lastPcmSentAt && Date.now() - lastPcmSentAt > 12000) {
+          noteIssue('لا يُرسل صوت منذ 12 ثانية — أعيد الاتصال');
+          scheduleReconnect('توقف إرسال الصوت');
+        }
+      }, 2000);
+    }
+
+    function stopHealthWatch() {
+      if (healthTimer) {
+        clearInterval(healthTimer);
+        healthTimer = null;
+      }
+    }
+
+    async function connectFastWithWatch() {
+      await connectFast();
     }
 
     async function start() {
@@ -418,14 +661,19 @@
         throw new Error('المايك غير متاح على هذا الجهاز');
       }
 
+      intentionalClose = false;
+      running = true;
       onStatus('connecting');
       sendingPaused = false;
+      reconnectAttempts = 0;
+      reconnecting = false;
+      clearReconnectTimer();
 
-      // Open mic + WebSocket in parallel for faster first listen.
       const micPromise = openMicStream();
       try {
-        await connectFast();
+        await connectFastWithWatch();
       } catch (err) {
+        running = false;
         try {
           const s = await micPromise;
           s.getTracks().forEach((t) => t.stop());
@@ -434,8 +682,8 @@
       }
 
       const stream = await micPromise;
-      running = true;
       await attachMic(stream);
+      startHealthWatch();
       onStatus('listening');
     }
 
@@ -448,20 +696,33 @@
       sendingPaused = false;
     }
 
+    async function resumeAfterBackground() {
+      if (!running || intentionalClose) return;
+      emitEvent('app_visible', {});
+      try {
+        await ensureMicReady();
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          await connectFastWithWatch();
+        }
+        onStatus('listening');
+      } catch (err) {
+        scheduleReconnect(String(err.message || err));
+      }
+    }
+
     function stop() {
       intentionalClose = true;
       running = false;
-      setupDone = false;
+      reconnecting = false;
+      reconnectAttempts = 0;
       sendingPaused = false;
+      clearReconnectTimer();
+      stopHealthWatch();
+      closeWs();
       stopMic();
-      try {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          sendJson({ realtimeInput: { audioStreamEnd: true } });
-        }
-      } catch (e) { /* ignore */ }
-      try { if (ws) ws.close(); } catch (e) { /* ignore */ }
-      ws = null;
+      lastIssue = '';
       onStatus('stopped');
+      emitEvent('stopped', {});
     }
 
     return {
@@ -469,6 +730,8 @@
       stop,
       pauseSend,
       resumeSend,
+      resumeAfterBackground,
+      getDiagnostics,
       get running() { return running; },
       get model() { return modelName; }
     };

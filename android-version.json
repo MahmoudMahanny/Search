@@ -1,6 +1,6 @@
 {
-  "versionCode": 22,
-  "versionName": "0.1.21",
-  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.21/lammah.apk",
-  "notes": "مسح فوري غير مشروط للشاشة بمجرد سماع أي صوت جديد"
+  "versionCode": 23,
+  "versionName": "0.1.22",
+  "apkUrl": "https://github.com/MahmoudMahanny/Search/releases/download/android-v0.1.22/lammah.apk",
+  "notes": "إعادة اتصال تلقائية عند انقطاع المايك + لوحة تشخيص على الشاشة"
 }

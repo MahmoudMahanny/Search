@@ -343,6 +343,66 @@
     color: #7a1f1f;
     background: linear-gradient(180deg, rgba(224, 90, 90, 0.14), rgba(224, 90, 90, 0.06));
   }
+
+  .voice-diag {
+    margin-top: 8px;
+    border: 1px solid rgba(224, 90, 90, 0.35);
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.22);
+    padding: 8px 10px;
+    font-size: 11px;
+    line-height: 1.45;
+    text-align: right;
+    direction: rtl;
+  }
+  html[data-theme="light"] .voice-diag {
+    background: rgba(224, 90, 90, 0.08);
+    border-color: rgba(180, 40, 40, 0.25);
+  }
+  .voice-diag-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 11.5px;
+  }
+  .voice-diag-head strong { color: var(--danger); }
+  .voice-diag-summary {
+    color: var(--muted);
+    font-size: 10.5px;
+    white-space: nowrap;
+  }
+  .voice-diag-issue {
+    color: #ffb4b4;
+    font-weight: 700;
+    margin-bottom: 4px;
+    min-height: 0;
+  }
+  html[data-theme="light"] .voice-diag-issue { color: #a32020; }
+  .voice-diag-issue:empty { display: none; }
+  .voice-diag-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px 10px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .voice-diag-grid span b { color: var(--text); font-weight: 600; }
+  .voice-diag-log {
+    margin: 0;
+    max-height: 72px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--muted);
+    font-size: 10px;
+    font-family: ui-monospace, monospace;
+    direction: ltr;
+    text-align: left;
+  }
+  .voice-diag.ok-state { border-color: rgba(80, 180, 120, 0.35); }
+  .voice-diag.warn-state { border-color: rgba(224, 90, 90, 0.55); }
   #camBtn {
     border-color: var(--accent-dim);
     color: var(--accent);
@@ -747,6 +807,16 @@
       <span class="mic-live-dot" aria-hidden="true"></span>
       <span class="mic-live-bars" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></span>
       <span id="micLiveText">المايك شغال الآن — استماع مستمر</span>
+    </div>
+
+    <div id="voiceDiagPanel" class="voice-diag" hidden>
+      <div class="voice-diag-head">
+        <strong>تشخيص المايك</strong>
+        <span id="voiceDiagSummary" class="voice-diag-summary">—</span>
+      </div>
+      <div id="voiceDiagIssue" class="voice-diag-issue"></div>
+      <div id="voiceDiagGrid" class="voice-diag-grid"></div>
+      <pre id="voiceDiagLog" class="voice-diag-log"></pre>
     </div>
 
     <div id="statusLine" class="status-line"></div>
@@ -1407,6 +1477,106 @@
   let nativeListenersReady = false;
   let geminiSession = null;
   let geminiInputBuffer = '';
+  let readyToClearOnNextVoice = false;
+
+  const voiceDiagPanel = document.getElementById('voiceDiagPanel');
+  const voiceDiagSummary = document.getElementById('voiceDiagSummary');
+  const voiceDiagIssue = document.getElementById('voiceDiagIssue');
+  const voiceDiagGrid = document.getElementById('voiceDiagGrid');
+  const voiceDiagLog = document.getElementById('voiceDiagLog');
+  const voiceDiagState = { lines: [], lastIssue: '' };
+
+  function voiceDiagLabel(key) {
+    const map = {
+      running: 'تشغيل',
+      setupDone: 'جاهز',
+      reconnecting: 'يعيد الاتصال',
+      reconnectAttempts: 'محاولات',
+      model: 'النموذج',
+      ws: 'الاتصال',
+      audioContext: 'مسار الصوت',
+      micTrack: 'المايك',
+      sendingPaused: 'إرسال موقوف'
+    };
+    return map[key] || key;
+  }
+
+  function voiceDiagValue(key, val) {
+    if (key === 'ws') {
+      if (val === 'open') return 'متصل ✅';
+      if (val === 'connecting') return 'يتصل...';
+      if (val === 'closed' || val === 'closing') return 'منقطع ❌';
+      return val;
+    }
+    if (key === 'micTrack') {
+      if (val === 'live') return 'شغال ✅';
+      if (val === 'ended') return 'توقف ❌';
+      if (val === 'muted') return 'مكتوم ⚠️';
+      return val;
+    }
+    if (key === 'audioContext') {
+      if (val === 'running') return 'شغال ✅';
+      if (val === 'suspended') return 'موقوف ⚠️';
+      return val;
+    }
+    if (typeof val === 'boolean') return val ? 'نعم' : 'لا';
+    return val == null || val === '' ? '—' : String(val);
+  }
+
+  function pushVoiceDiag(kind, msg) {
+    const t = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    voiceDiagState.lines.unshift(t + ' | ' + kind + ': ' + msg);
+    if (voiceDiagState.lines.length > 14) voiceDiagState.lines.length = 14;
+    if (voiceDiagLog) voiceDiagLog.textContent = voiceDiagState.lines.join('\n');
+    if (/error|fail|disconnect|ended|suspend|issue|closed|توقف|انقطع|فشل/i.test(kind + ' ' + msg)) {
+      voiceDiagState.lastIssue = msg;
+      if (voiceDiagIssue) voiceDiagIssue.textContent = '⚠️ ' + msg;
+      if (voiceDiagPanel) voiceDiagPanel.classList.add('warn-state');
+    }
+  }
+
+  function renderVoiceDiag(diag) {
+    if (!voiceDiagPanel) return;
+    if (!micOpen) {
+      voiceDiagPanel.hidden = true;
+      return;
+    }
+    voiceDiagPanel.hidden = false;
+    const d = diag || (geminiSession && geminiSession.getDiagnostics ? geminiSession.getDiagnostics() : null);
+    if (!d) {
+      if (voiceDiagSummary) voiceDiagSummary.textContent = voiceEngineMode || '—';
+      return;
+    }
+
+    const ok = d.ws === 'open' && d.micTrack === 'live' && d.audioContext === 'running' && !d.reconnecting;
+    voiceDiagPanel.classList.toggle('ok-state', ok);
+    voiceDiagPanel.classList.toggle('warn-state', !ok);
+
+    if (voiceDiagSummary) {
+      voiceDiagSummary.textContent = d.reconnecting
+        ? 'يعيد الاتصال (' + d.reconnectAttempts + ')'
+        : (ok ? 'يعمل بشكل طبيعي' : 'يحتاج انتباه');
+    }
+
+    if (voiceDiagGrid) {
+      const keys = ['ws', 'micTrack', 'audioContext', 'reconnecting'];
+      voiceDiagGrid.innerHTML = keys.map((k) =>
+        '<span>' + voiceDiagLabel(k) + ': <b>' + voiceDiagValue(k, d[k]) + '</b></span>'
+      ).join('');
+    }
+
+    if (ok && voiceDiagIssue && !voiceDiagState.lastIssue) {
+      voiceDiagIssue.textContent = '';
+    } else if (d.lastIssue && voiceDiagIssue) {
+      voiceDiagIssue.textContent = '⚠️ ' + d.lastIssue;
+    }
+  }
+
+  function setVoiceDiagVisible(show) {
+    if (!voiceDiagPanel) return;
+    if (!show && !micOpen) voiceDiagPanel.hidden = true;
+    else if (show || micOpen) voiceDiagPanel.hidden = false;
+  }
 
   function onNewVoiceDetected() {
     // Whenever voice/sound is heard: immediately clear old inputs and result card
@@ -1452,6 +1622,8 @@
         micLiveBanner.classList.add('visible');
       }
       if (micLiveText) micLiveText.textContent = 'المايك شغال الآن — استماع مستمر';
+      setVoiceDiagVisible(true);
+      renderVoiceDiag();
     } else {
       micBtn.classList.remove('listening');
       micLabel.textContent = 'مايك';
@@ -1461,6 +1633,7 @@
         micLiveBanner.hidden = true;
         micLiveBanner.classList.remove('visible');
       }
+      if (voiceDiagPanel) voiceDiagPanel.hidden = true;
     }
   }
 
@@ -1563,6 +1736,11 @@
     softRestarting = false;
     setMicUi(false);
     setListeningStatus('المايك مقفول', '');
+    voiceDiagState.lastIssue = '';
+    voiceDiagState.lines = [];
+    if (voiceDiagIssue) voiceDiagIssue.textContent = '';
+    if (voiceDiagLog) voiceDiagLog.textContent = '';
+    if (voiceDiagPanel) voiceDiagPanel.hidden = true;
   }
 
   let enableMicSession = async function enableMicSessionImpl() {
@@ -1594,11 +1772,32 @@
     geminiSession = window.LammahGeminiVoice.createSession({
       onStatus: (state) => {
         if (!micOpen) return;
+        pushVoiceDiag('status', state);
         if (state === 'connecting') setListeningStatus('🎙️ جارٍ تجهيز المايك...', 'listening-text');
-        else if (state === 'connected' || state === 'listening') {
+        else if (state === 'reconnecting') {
+          setListeningStatus('🔄 انقطع الاتصال — جارٍ إعادة الربط تلقائيًا...', 'listening-text');
+          if (micLiveText) micLiveText.textContent = 'يعيد الاتصال — لا تقفل المايك';
+        } else if (state === 'connected' || state === 'listening') {
           setMicUi(true);
           setListeningStatus(voiceOpenHint(), 'listening-text');
+          if (micLiveText) micLiveText.textContent = 'المايك شغال الآن — استماع مستمر';
+          voiceDiagState.lastIssue = '';
+          if (voiceDiagIssue) voiceDiagIssue.textContent = '';
+        } else if (state === 'disconnected') {
+          setListeningStatus('⚠️ انقطع الاتصال — جارٍ إعادة الربط...', 'listening-text');
         }
+        renderVoiceDiag();
+      },
+      onEvent: (type, detail) => {
+        if (!micOpen) return;
+        const d = detail || {};
+        if (type === 'health') {
+          renderVoiceDiag(d);
+          return;
+        }
+        const msg = d.message || d.reason || d.error || JSON.stringify(d);
+        pushVoiceDiag(type, msg);
+        renderVoiceDiag(geminiSession && geminiSession.getDiagnostics ? geminiSession.getDiagnostics() : null);
       },
       onSpeechActivity: () => {
         if (!micOpen) return;
@@ -1633,7 +1832,14 @@
       },
       onError: (err) => {
         if (!micOpen) return;
-        setListeningStatus('⚠️ تعذر فتح المايك: ' + (err && err.message ? err.message : err), '');
+        const msg = err && err.message ? err.message : String(err);
+        pushVoiceDiag('error', msg);
+        renderVoiceDiag();
+        if (/إعادة الاتصال|جارٍ إعادة/i.test(msg)) {
+          setListeningStatus('🔄 ' + msg, 'listening-text');
+        } else {
+          setListeningStatus('⚠️ ' + msg, 'listening-text');
+        }
       }
     });
 
@@ -1962,6 +2168,17 @@
       if (cap?.registerPlugin) isNativeAndroid = true;
     });
   }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !micOpen) return;
+    pushVoiceDiag('app', 'التطبيق عاد للواجهة');
+    if (voiceEngineMode === 'gemini' && geminiSession && geminiSession.resumeAfterBackground) {
+      geminiSession.resumeAfterBackground().catch(() => {});
+    } else if (micOpen && voiceEngineMode !== 'gemini') {
+      scheduleVoiceRestart(300);
+    }
+    renderVoiceDiag();
+  });
 
 
   // ---- Image (OCR) search with interactive crop ----
