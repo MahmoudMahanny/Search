@@ -1,6 +1,6 @@
 {
-  "versionCode": 30,
-  "versionName": "0.1.29",
+  "versionCode": 31,
+  "versionName": "0.1.30",
   "apkUrl": "https://mahmoudmahanny.github.io/Search/downloads/lammah.apk",
-  "notes": "إصلاح Permission denied للمايك على أندرويد (WebView). بعد التثبيت: اسمح بالميكروفون ثم أعد فتح التطبيق."
+  "notes": "إصلاح Permission denied: المايك يشتغل من أندرويد مباشرة (بدون WebView). بعد التثبيت: اسمح بالميكروفون ثم أعد فتح التطبيق."
 }

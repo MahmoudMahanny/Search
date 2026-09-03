@@ -138,6 +138,44 @@
     let lastServerMsgAt = 0;
     let lastIssue = '';
     const TARGET_SAMPLES = 320;
+    let micSource = 'none'; // 'webview' | 'native' | 'none'
+    let nativeMicActive = false;
+    let nativeMicListener = null;
+    let nativeMicPlugin = null;
+    let lastNativeActivityTime = 0;
+
+    function isCapacitorAndroid() {
+      try {
+        return !!(
+          window.Capacitor &&
+          window.Capacitor.isNativePlatform &&
+          window.Capacitor.isNativePlatform() &&
+          window.Capacitor.getPlatform &&
+          window.Capacitor.getPlatform() === 'android'
+        );
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function getMicStreamPlugin() {
+      if (!nativeMicPlugin && window.Capacitor && window.Capacitor.registerPlugin) {
+        nativeMicPlugin = window.Capacitor.registerPlugin('MicStream');
+      }
+      return nativeMicPlugin;
+    }
+
+    function int16Base64ToFloat32(base64, samples) {
+      const bin = atob(base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const view = new DataView(bytes.buffer);
+      const out = new Float32Array(samples);
+      for (let i = 0; i < samples; i++) {
+        out[i] = view.getInt16(i * 2, true) / 0x8000;
+      }
+      return out;
+    }
 
     function emitEvent(type, detail) {
       try { onEvent(type, detail || {}); } catch (e) { /* ignore */ }
@@ -245,6 +283,7 @@
     }
 
     function micTrackState() {
+      if (nativeMicActive) return 'live';
       if (!mediaStream) return 'none';
       const tracks = mediaStream.getAudioTracks();
       if (!tracks.length) return 'none';
@@ -263,8 +302,9 @@
         reconnectAttempts,
         model: modelName,
         ws: wsStateLabel(ws),
-        audioContext: audioContext ? audioContext.state : 'none',
+        audioContext: nativeMicActive ? 'native' : (audioContext ? audioContext.state : 'none'),
         micTrack: micTrackState(),
+        micSource,
         sendingPaused,
         lastPcmSentAt,
         lastServerMsgAt,
@@ -272,7 +312,74 @@
       };
     }
 
+    function feedPcmFloat(float32) {
+      if (!running || sendingPaused || !float32 || !float32.length) return;
+      let sum = 0;
+      const step = Math.max(1, Math.floor(float32.length / 32));
+      let count = 0;
+      for (let i = 0; i < float32.length; i += step) {
+        sum += Math.abs(float32[i]);
+        count++;
+      }
+      const avg = count > 0 ? sum / count : 0;
+      if (avg > 0.012) {
+        const now = Date.now();
+        if (now - lastNativeActivityTime > 400) {
+          lastNativeActivityTime = now;
+          try { onSpeechActivity(); } catch (e) { /* ignore */ }
+        }
+      }
+      if (!setupDone) return;
+      queuePcm(float32);
+    }
+
+    async function attachNativeMic(plugin) {
+      if (nativeMicListener) {
+        try { await nativeMicListener.remove(); } catch (e) { /* ignore */ }
+        nativeMicListener = null;
+      }
+      nativeMicListener = await plugin.addListener('pcm', (ev) => {
+        if (!ev || !ev.data) return;
+        const samples = ev.samples || 0;
+        if (!samples) return;
+        feedPcmFloat(int16Base64ToFloat32(ev.data, samples));
+      });
+      await plugin.start();
+      nativeMicActive = true;
+      micSource = 'native';
+      if (!flushTimer) {
+        flushTimer = setInterval(() => flushPcm(true), 20);
+      }
+      emitEvent('mic_attached', { audioContext: 'native', micTrack: 'live', source: 'native' });
+    }
+
+    async function openNativeMicStream() {
+      const plugin = getMicStreamPlugin();
+      if (!plugin) throw new Error('MicStream plugin unavailable');
+
+      let perm = await plugin.checkPermissions();
+      if (perm.microphone !== 'granted') {
+        perm = await plugin.requestPermissions();
+      }
+      if (perm.microphone !== 'granted') {
+        throw new Error('Permission denied — إذن المايك مرفوض من النظام');
+      }
+
+      await attachNativeMic(plugin);
+      emitEvent('mic_opened', { source: 'native' });
+      return { __native: true };
+    }
+
     async function openMicStream() {
+      if (isCapacitorAndroid()) {
+        try {
+          return await openNativeMicStream();
+        } catch (nativeErr) {
+          const msg = String(nativeErr && nativeErr.message ? nativeErr.message : nativeErr);
+          emitEvent('native_mic_failed', { error: msg });
+        }
+      }
+
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('المايك غير متاح على هذا الجهاز');
       }
@@ -302,7 +409,8 @@
             lastErr = new Error('تم فتح المايك بدون مسار صوت');
             continue;
           }
-          emitEvent('mic_opened', { tracks: tracks.length, label: tracks[0].label || '' });
+          micSource = 'webview';
+          emitEvent('mic_opened', { tracks: tracks.length, label: tracks[0].label || '', source: 'webview' });
           return stream;
         } catch (err) {
           lastErr = err;
@@ -341,6 +449,7 @@
 
     async function attachMic(stream) {
       if (!stream) throw new Error('لا يوجد بث مايك');
+      if (stream.__native) return;
       if (mediaStream && mediaStream !== stream) {
         mediaStream.getTracks().forEach((t) => t.stop());
       }
@@ -372,30 +481,9 @@
       source = audioContext.createMediaStreamSource(mediaStream);
       const inputRate = audioContext.sampleRate || 48000;
 
-      let lastActivityTime = 0;
       const onAudioFloat = (float32) => {
-        if (!running || sendingPaused) return;
-        // Queue audio even before setup finishes so first words aren't lost,
-        // but only flush after setupDone (flushPcm already checks that).
-        if (float32 && float32.length) {
-          let sum = 0;
-          const step = Math.max(1, Math.floor(float32.length / 32));
-          let count = 0;
-          for (let i = 0; i < float32.length; i += step) {
-            sum += Math.abs(float32[i]);
-            count++;
-          }
-          const avg = count > 0 ? sum / count : 0;
-          if (avg > 0.012) {
-            const now = Date.now();
-            if (now - lastActivityTime > 400) {
-              lastActivityTime = now;
-              try { onSpeechActivity(); } catch (e) {}
-            }
-          }
-        }
-        if (!setupDone) return;
-        queuePcm(downsampleTo16k(float32, inputRate));
+        if (!running || sendingPaused || !float32 || !float32.length) return;
+        feedPcmFloat(downsampleTo16k(float32, inputRate));
       };
 
       try {
@@ -455,6 +543,15 @@
         mediaStream.getTracks().forEach((t) => t.stop());
         mediaStream = null;
       }
+      if (nativeMicListener) {
+        try { nativeMicListener.remove(); } catch (e) { /* ignore */ }
+        nativeMicListener = null;
+      }
+      if (nativeMicPlugin) {
+        nativeMicPlugin.stop().catch(() => {});
+      }
+      nativeMicActive = false;
+      micSource = 'none';
       if (audioContext) {
         try { audioContext.close(); } catch (e) { /* ignore */ }
         audioContext = null;
@@ -579,7 +676,12 @@
         emitEvent('mic_reopen', {});
         stopMic();
         const stream = await openMicStream();
-        await attachMic(stream);
+        if (!stream.__native) await attachMic(stream);
+        return;
+      }
+      if (nativeMicActive && !nativeMicListener) {
+        const plugin = getMicStreamPlugin();
+        if (plugin) await attachNativeMic(plugin);
         return;
       }
       if (audioContext && audioContext.state === 'suspended') {
@@ -727,7 +829,8 @@
         return;
       }
       if (!getApiKey()) throw new Error('التعرف الصوتي غير متاح حاليًا');
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      const canWebMic = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+      if (!canWebMic && !isCapacitorAndroid()) {
         throw new Error('المايك غير متاح على هذا الجهاز');
       }
 
@@ -743,7 +846,7 @@
       let stream;
       try {
         stream = await openMicStream();
-        await attachMic(stream);
+        if (!stream.__native) await attachMic(stream);
         emitEvent('mic_ready_before_ws', getDiagnostics());
       } catch (err) {
         running = false;

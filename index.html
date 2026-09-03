@@ -1496,6 +1496,7 @@
       ws: 'الاتصال',
       audioContext: 'مسار الصوت',
       micTrack: 'المايك',
+      micSource: 'مصدر المايك',
       sendingPaused: 'إرسال موقوف'
     };
     return map[key] || key;
@@ -1516,7 +1517,13 @@
     }
     if (key === 'audioContext') {
       if (val === 'running') return 'شغال ✅';
+      if (val === 'native') return 'أصلي ✅';
       if (val === 'suspended') return 'موقوف ⚠️';
+      return val;
+    }
+    if (key === 'micSource') {
+      if (val === 'native') return 'مايك أندرويد ✅';
+      if (val === 'webview') return 'WebView';
       return val;
     }
     if (typeof val === 'boolean') return val ? 'نعم' : 'لا';
@@ -1548,7 +1555,8 @@
       return;
     }
 
-    const ok = d.ws === 'open' && d.micTrack === 'live' && d.audioContext === 'running' && !d.reconnecting;
+    const ok = d.ws === 'open' && d.micTrack === 'live' &&
+      (d.audioContext === 'running' || d.audioContext === 'native') && !d.reconnecting;
     voiceDiagPanel.classList.toggle('ok-state', ok);
     voiceDiagPanel.classList.toggle('warn-state', !ok);
 
@@ -1560,7 +1568,7 @@
     }
 
     if (voiceDiagGrid) {
-      const keys = ['ws', 'micTrack', 'audioContext', 'reconnecting'];
+      const keys = ['ws', 'micTrack', 'micSource', 'audioContext', 'reconnecting'];
       voiceDiagGrid.innerHTML = keys.map((k) =>
         '<span>' + voiceDiagLabel(k) + ': <b>' + voiceDiagValue(k, d[k]) + '</b></span>'
       ).join('');
@@ -2074,19 +2082,18 @@
         if (isCapacitorAndroidHost() && window.Capacitor?.registerPlugin) {
           try {
             await waitForCapacitor(2500);
-            const SR = window.Capacitor.registerPlugin('SpeechRecognition');
-            let perm = await withRaceTimeout(SR.checkPermissions(), 2500, 'فحص إذن المايك');
-            if (perm.speechRecognition !== 'granted') {
+            const MicStream = window.Capacitor.registerPlugin('MicStream');
+            let perm = await withRaceTimeout(MicStream.checkPermissions(), 2500, 'فحص إذن المايك');
+            if (perm.microphone !== 'granted') {
               setListeningStatus('🎙️ لازم تسمح بإذن الميكروفون...', 'listening-text');
-              perm = await withRaceTimeout(SR.requestPermissions(), 8000, 'طلب إذن المايك');
+              perm = await withRaceTimeout(MicStream.requestPermissions(), 8000, 'طلب إذن المايك');
             }
-            if (perm.speechRecognition !== 'granted') {
+            if (perm.microphone !== 'granted') {
               pushVoiceDiag('permission', 'إذن المايك مرفوض من النظام');
               throw new Error('محتاج إذن الميكروفون — التطبيقات → لمّاح → الأذونات → الميكروفون');
             }
             pushVoiceDiag('permission', 'إذن المايك ممنوح من النظام');
-            // Give Android a moment to propagate runtime permission to WebView.
-            await delay(350);
+            await delay(200);
           } catch (permErr) {
             pushVoiceDiag('permission', String(permErr && permErr.message ? permErr.message : permErr));
             if (/إذن الميكروفون|permission/i.test(String(permErr && permErr.message ? permErr.message : permErr))) {
@@ -2110,8 +2117,8 @@
         const diag = geminiSession && geminiSession.getDiagnostics ? geminiSession.getDiagnostics() : null;
         if (diag) {
           renderVoiceDiag(diag);
-          if (diag.micTrack !== 'live' || diag.audioContext === 'none') {
-            pushVoiceDiag('mic', 'الاتصال تم لكن المايك= ' + diag.micTrack + ' / الصوت= ' + diag.audioContext);
+          if (diag.micTrack !== 'live' || (diag.audioContext === 'none')) {
+            pushVoiceDiag('mic', 'الاتصال تم لكن المايك= ' + diag.micTrack + ' / الصوت= ' + diag.audioContext + ' / مصدر= ' + (diag.micSource || '—'));
             throw new Error('المايك لم يُربَط بعد الاتصال — هحاول وضع بديل');
           }
         }
