@@ -16,12 +16,60 @@
   const WS_BASE =
     'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
 
-  const SYSTEM_INSTRUCTION =
-    'استخرج لوحات سعودية من الكلام فورًا.\n' +
-    'عند سماع 3 حروف عربية + 4 أرقام استدعِ check_saudi_plate مباشرة بدون انتظار أو شرح.\n' +
-    'لوحات متتالية = استدعاءات متتالية. تجاهل الكلام العادي.\n' +
-    'الحروف عربية بلا مسافات، الأرقام 0-9.\n' +
-    'بديل نصي نادر: PLATE:ححح|####';
+  const SYSTEM_INSTRUCTION_BASE =
+    'أنت مساعد صوتي لاستخراج لوحات المركبات السعودية فقط — ليس للكلام العام.\n' +
+    'القاعدة: 3 حروف عربية (من الأبجدية العربية \u0621-\u064A) + 4 أرقام لاتينية 0-9.\n' +
+    'مثال صحيح: عبق3847، راد2646، اصس7743.\n' +
+    'ممنوع: العبري، الإنجليزي، الشرح، الترجمة، أو أي لغة غير العربية السعودية.\n' +
+    'ممنوع كتابة transcription بالحروف العبرية (\u0590-\u05FF) — إذا سمعت صوتاً مشوشاً حوّله لأقرب حروف عربية سعودية للوحة.\n' +
+    'الأرقام دائماً 0-9 (ليست ٠١٢٣ العربية الشرقية).\n' +
+    'عند اكتمال لوحة (3 حروف + 4 أرقام) استدعِ check_saudi_plate فوراً بدون انتظار.\n' +
+    'لوحات متتالية = استدعاءات متتالية. تجاهل الكلام العادي والضجيج.\n' +
+    'لا تنتظر نهاية الجملة — أطلق الأداة بمجرد اكتمال السبعة رموز.\n' +
+    'بديل نصي نادر فقط: PLATE:ححح|####';
+
+  const ARABIC_LETTER_RE = /[\u0621-\u064A]/;
+  const ARABIC_PLATE_LETTERS_RE = /^[\u0621-\u064A]{3}$/;
+  const HEBREW_RE = /[\u0590-\u05FF]/;
+
+  function getPlateSamples() {
+    try {
+      const samples = typeof window !== 'undefined' && window.LAMMAH_GEMINI_PLATE_SAMPLES;
+      if (Array.isArray(samples) && samples.length) return samples;
+    } catch (e) { /* ignore */ }
+    return [];
+  }
+
+  function buildSystemInstruction() {
+    const samples = getPlateSamples();
+    if (!samples.length) return SYSTEM_INSTRUCTION_BASE;
+    return (
+      SYSTEM_INSTRUCTION_BASE +
+      '\n\nقائمة مرجعية: ' + samples.length + ' لوحة سعودية حقيقية — استخدمها لفهم نطق الحروف والأنماط:\n' +
+      samples.join('، ') +
+      '\n\nتذكير: كل الحروف في الأمثلة عربية. لا تُخرِج عبرية أبداً.'
+    );
+  }
+
+  function sanitizePlateLetters(raw) {
+    return String(raw || '')
+      .replace(/\s+/g, '')
+      .split('')
+      .filter((ch) => ARABIC_LETTER_RE.test(ch))
+      .join('')
+      .slice(0, 3);
+  }
+
+  function sanitizePlateDigits(raw) {
+    return String(raw || '').replace(/\D/g, '').slice(0, 4);
+  }
+
+  function isAcceptableTranscript(text) {
+    const t = String(text || '').trim();
+    if (!t) return false;
+    if (HEBREW_RE.test(t)) return false;
+    return true;
+  }
 
   function preferredModels() {
     let pref = '';
@@ -238,8 +286,8 @@
         const responses = [];
         for (const call of msg.toolCall.functionCalls) {
           const args = call.args || {};
-          let letters = String(args.letters || '').replace(/\s+/g, '');
-          let digits = String(args.digits || '').replace(/\D/g, '');
+          let letters = sanitizePlateLetters(args.letters);
+          let digits = sanitizePlateDigits(args.digits);
           if (letters.length >= 3 && digits.length >= 4) {
             letters = letters.slice(0, 3);
             digits = digits.slice(0, 4);
@@ -264,10 +312,12 @@
       if (!sc) return;
 
       if (sc.inputTranscription && sc.inputTranscription.text) {
-        onTranscript(sc.inputTranscription.text, false);
+        const t = sc.inputTranscription.text;
+        if (isAcceptableTranscript(t)) onTranscript(t, false);
       }
       if (sc.outputTranscription && sc.outputTranscription.text) {
-        onTranscript(sc.outputTranscription.text, false);
+        const t = sc.outputTranscription.text;
+        if (isAcceptableTranscript(t)) onTranscript(t, false);
       }
 
       if (sc.modelTurn && Array.isArray(sc.modelTurn.parts)) {
@@ -275,7 +325,7 @@
         for (const part of sc.modelTurn.parts) {
           if (part.text) text += part.text;
         }
-        if (text) {
+        if (text && isAcceptableTranscript(text)) {
           onTranscript(text, true);
           const plate = parsePlateLine(text);
           if (plate) onPlate(Object.assign({ source: 'text' }, plate));
@@ -596,7 +646,7 @@
           generationConfig: {
             responseModalities: ['AUDIO']
           },
-          systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+          systemInstruction: { parts: [{ text: buildSystemInstruction() }] },
           inputAudioTranscription: {},
           tools: [
             {
@@ -604,13 +654,13 @@
                 {
                   name: 'check_saudi_plate',
                   description:
-                    'Call IMMEDIATELY when a complete Saudi plate is heard (3 Arabic letters + 4 digits). Call again for each new plate.',
+                    'Call IMMEDIATELY when a complete Saudi plate is heard: exactly 3 Arabic letters (\\u0621-\\u064A) + 4 digits (0-9). Never Hebrew. Call again for each new plate.',
                   parameters: {
                     type: 'OBJECT',
                     properties: {
-                      letters: { type: 'STRING', description: 'Exactly 3 Arabic letters' },
-                      digits: { type: 'STRING', description: 'Exactly 4 digits 0-9' },
-                      transcript: { type: 'STRING' }
+                      letters: { type: 'STRING', description: 'Exactly 3 Arabic letters only (Saudi plate alphabet)' },
+                      digits: { type: 'STRING', description: 'Exactly 4 Western digits 0-9' },
+                      transcript: { type: 'STRING', description: 'Arabic transcript only — never Hebrew' }
                     },
                     required: ['letters', 'digits']
                   }

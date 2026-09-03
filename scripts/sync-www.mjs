@@ -12,7 +12,7 @@ const vendorDir = join(www, 'vendor');
 const xlsxSrc = join(root, 'node_modules/xlsx/dist/xlsx.full.min.js');
 const capacitorJs = join(root, 'node_modules/@capacitor/core/dist/capacitor.js');
 
-const files = [
+    const files = [
   'index.html',
   'chassis.html',
   'history.html',
@@ -21,6 +21,7 @@ const files = [
   'theme.js',
   'theme.css',
   'update.js',
+  'gemini-plate-examples.js',
   'gemini-voice.js',
   'data.json'
 ];

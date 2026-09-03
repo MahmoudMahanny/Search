@@ -1,6 +1,6 @@
 {
-  "versionCode": 32,
-  "versionName": "0.1.31",
+  "versionCode": 33,
+  "versionName": "0.1.32",
   "apkUrl": "https://mahmoudmahanny.github.io/Search/downloads/lammah.apk",
-  "notes": "إخفاء لوحة التشخيص عند الشغل الطبيعي + منع مسح اللوحة من ضوضاء بداية المايك."
+  "notes": "تعليمات Gemini محسّنة + 1000 لوحة كمثال + منع العبري في التفريغ الصوتي."
 }
