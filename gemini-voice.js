@@ -370,16 +370,7 @@
       return { __native: true };
     }
 
-    async function openMicStream() {
-      if (isCapacitorAndroid()) {
-        try {
-          return await openNativeMicStream();
-        } catch (nativeErr) {
-          const msg = String(nativeErr && nativeErr.message ? nativeErr.message : nativeErr);
-          emitEvent('native_mic_failed', { error: msg });
-        }
-      }
-
+    async function openWebMicStream() {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('المايك غير متاح على هذا الجهاز');
       }
@@ -416,10 +407,6 @@
           lastErr = err;
           const msg = String(err && err.message ? err.message : err);
           emitEvent('mic_open_failed', { error: msg, attempt: i + 1 });
-          // Don't keep retrying the same hard permission denial with different constraints.
-          if (/permission|denied|notallowed/i.test(msg) && i === 0) {
-            // still try the second constraint once; if both fail, throw below
-          }
         }
       }
       const msg = String(lastErr && lastErr.message ? lastErr.message : lastErr || '');
@@ -429,6 +416,30 @@
         );
       }
       throw lastErr || new Error('تعذر فتح المايك');
+    }
+
+    async function openMicStream() {
+      let webErr = null;
+      try {
+        return await openWebMicStream();
+      } catch (err) {
+        webErr = err;
+        const msg = String(err && err.message ? err.message : err);
+        emitEvent('webview_mic_failed', { error: msg });
+      }
+
+      // WebView failed (often Permission denied) — try native AudioRecord on Android.
+      if (isCapacitorAndroid()) {
+        try {
+          emitEvent('mic_fallback_native', {});
+          return await openNativeMicStream();
+        } catch (nativeErr) {
+          const msg = String(nativeErr && nativeErr.message ? nativeErr.message : nativeErr);
+          emitEvent('native_mic_failed', { error: msg });
+        }
+      }
+
+      throw webErr || new Error('تعذر فتح المايك');
     }
 
     function watchMicTrack(track) {
