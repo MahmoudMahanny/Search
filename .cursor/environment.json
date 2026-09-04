@@ -1,0 +1,17 @@
+{
+  "name": "لمّاح — Saudi Plate Search",
+  "install": "npm ci",
+  "terminals": [
+    {
+      "name": "web",
+      "command": "python3 -m http.server 8000 --bind 0.0.0.0",
+      "description": "Serves the static web app (index.html and its data assets) at http://localhost:8000. Open http://localhost:8000/index.html to use the plate-search UI. The Android app is built in CI, not here."
+    }
+  ],
+  "ports": [
+    {
+      "name": "web",
+      "port": 8000
+    }
+  ]
+}
