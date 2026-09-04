@@ -206,7 +206,7 @@
     </div>
   </div>
 
-  <div class="settings-card">
+  <div class="settings-card" id="updatesCard">
     <div class="settings-label" style="margin-bottom:8px">التحديثات</div>
     <span class="settings-hint" style="margin-bottom:12px;display:block">عند فتح التطبيق يظهر إشعار لو في نسخة أحدث. تقدر تبحث يدويًا من هنا.</span>
     <button type="button" id="checkUpdateBtn" class="update-btn">🔎 البحث عن تحديث</button>
@@ -260,15 +260,21 @@
   const isApp = window.LammahUpdate ? window.LammahUpdate.isAppShell() : !!window.__LAMMAH_APP_SHELL__;
   platformBadge.textContent = isApp ? 'تطبيق أندرويد' : 'موقع ويب';
 
+  const updatesCard = document.getElementById('updatesCard');
+  if (updatesCard && !isApp) updatesCard.style.display = 'none';
+  if (window.updateBanner && !isApp) window.updateBanner.style.display = 'none';
+  const updateBannerEl = document.getElementById('updateBanner');
+  if (updateBannerEl && !isApp) updateBannerEl.style.display = 'none';
+
   try {
     const info = await window.LammahUpdate.getLocalInfo();
     if (info.version) versionBadge.textContent = 'v' + info.version;
     if (info.build) buildHint.textContent = 'كود البناء ' + info.build;
   } catch (e) {}
 
-  if (window.LammahUpdate) window.LammahUpdate.startAutoUpdateChecks();
+  if (window.LammahUpdate && isApp) window.LammahUpdate.startAutoUpdateChecks();
 
-  checkUpdateBtn.addEventListener('click', async () => {
+  if (isApp && checkUpdateBtn) checkUpdateBtn.addEventListener('click', async () => {
     checkUpdateBtn.disabled = true;
     updateStatus.className = 'update-status';
     updateStatus.textContent = 'جارٍ البحث عن تحديث...';

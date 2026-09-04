@@ -1,6 +1,6 @@
 {
-  "versionCode": 36,
-  "versionName": "0.1.35",
+  "versionCode": 37,
+  "versionName": "0.1.36",
   "apkUrl": "https://mahmoudmahanny.github.io/Search/downloads/lammah.apk",
-  "notes": "إصلاح: الأخضر والإنذار للتطابق التام فقط. التصحيح التقريبي للحروف فقط (مش الأرقام)."
+  "notes": "بحث صوتي أسرع، حقل لوحة واحد، كل الحروف والأرقام العربية، بدون اقتراحات خاطئة."
 }

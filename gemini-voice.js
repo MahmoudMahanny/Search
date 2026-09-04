@@ -17,20 +17,21 @@
     'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
 
   const SYSTEM_INSTRUCTION_BASE =
-    'أنت مساعد صوتي لاستخراج لوحات المركبات السعودية فقط — ليس للكلام العام.\n' +
-    'القاعدة: 3 حروف عربية (من الأبجدية العربية \u0621-\u064A) + 4 أرقام لاتينية 0-9.\n' +
-    'مثال صحيح: عبق3847، راد2646، اصس7743.\n' +
-    'ممنوع: العبري، الإنجليزي، الشرح، الترجمة، أو أي لغة غير العربية السعودية.\n' +
-    'ممنوع كتابة transcription بالحروف العبرية (\u0590-\u05FF) — إذا سمعت صوتاً مشوشاً حوّله لأقرب حروف عربية سعودية للوحة.\n' +
-    'الأرقام دائماً 0-9 (ليست ٠١٢٣ العربية الشرقية).\n' +
-    'عند اكتمال لوحة (3 حروف + 4 أرقام) استدعِ check_saudi_plate فوراً بدون انتظار.\n' +
-    'لوحات متتالية = استدعاءات متتالية. تجاهل الكلام العادي والضجيج.\n' +
-    'لا تنتظر نهاية الجملة — أطلق الأداة بمجرد اكتمال السبعة رموز.\n' +
+    'أنت محرك استخراج لوحات سعودية فوري — استماع مستمر بلا توقف.\n' +
+    'استخرج كل حرف عربي منطوق من الأبجدية كاملة (\u0621-\u064A) بدون استثناء أي حرف.\n' +
+    'الأرقام: اقبل 0-9 والشرقية ٠-٩ وحولها فورًا إلى 0-9.\n' +
+    'الصيغة: 3 حروف عربية + 4 أرقام. مثال: عبق3847، راد2646، ثخغ١٢٣٤ → ثخغ1234.\n' +
+    'ممنوع: العبري، الإنجليزي، الشرح، الترجمة.\n' +
+    'ممنوع transcription عبري (\u0590-\u05FF) — حوّل لأي أقرب حروف عربية.\n' +
+    'عند اكتمال لوحة استدعِ check_saudi_plate فورًا بلا انتظار نهاية الجملة.\n' +
+    'لوحات متتالية = استدعاءات متتالية بسرعة قصوى. تجاهل الضجيج والكلام العادي.\n' +
     'بديل نصي نادر فقط: PLATE:ححح|####';
 
-  const ARABIC_LETTER_RE = /[\u0621-\u064A]/;
+  const ARABIC_LETTER_RE = /[\u0621-\u064A]/
   const ARABIC_PLATE_LETTERS_RE = /^[\u0621-\u064A]{3}$/;
-  const HEBREW_RE = /[\u0590-\u05FF]/;
+  const HEBREW_RE = /[\u0590-\u05FF]/
+  const ARABIC_INDIC = '٠١٢٣٤٥٦٧٨٩';
+  const EASTERN_INDIC = '۰۱۲۳۴۵۶۷۸۹';
   const HEBREW_TO_ARABIC = {
     '\u05D0': 'ا', '\u05D1': 'ب', '\u05D2': 'ج', '\u05D3': 'د', '\u05D4': 'ه',
     '\u05D5': 'و', '\u05D6': 'ز', '\u05D7': 'ح', '\u05D8': 'ط', '\u05D9': 'ي',
@@ -68,7 +69,11 @@
   }
 
   function sanitizePlateDigits(raw) {
-    return String(raw || '').replace(/\D/g, '').slice(0, 4);
+    return String(raw || '')
+      .replace(/[٠-٩]/g, (d) => String(ARABIC_INDIC.indexOf(d)))
+      .replace(/[۰-۹]/g, (d) => String(EASTERN_INDIC.indexOf(d)))
+      .replace(/\D/g, '')
+      .slice(0, 4);
   }
 
   function isAcceptableTranscript(text) {
@@ -192,7 +197,7 @@
     let lastPcmSentAt = 0;
     let lastServerMsgAt = 0;
     let lastIssue = '';
-    const TARGET_SAMPLES = 320;
+    const TARGET_SAMPLES = 160;
     let micSource = 'none'; // 'webview' | 'native' | 'none'
     let nativeMicActive = false;
     let nativeMicListener = null;
@@ -385,10 +390,10 @@
         count++;
       }
       const avg = count > 0 ? sum / count : 0;
-      const activityThreshold = inWarmup ? 0.045 : 0.012;
+      const activityThreshold = inWarmup ? 0.035 : 0.008;
       if (avg > activityThreshold) {
         const now = Date.now();
-        if (now - lastNativeActivityTime > 400) {
+        if (now - lastNativeActivityTime > 220) {
           lastNativeActivityTime = now;
           try { onSpeechActivity(); } catch (e) { /* ignore */ }
         }
@@ -661,12 +666,12 @@
                 {
                   name: 'check_saudi_plate',
                   description:
-                    'Call IMMEDIATELY when a complete Saudi plate is heard: exactly 3 Arabic letters (\\u0621-\\u064A) + 4 digits (0-9). Never Hebrew. Call again for each new plate.',
+                    'Call IMMEDIATELY when a complete plate is heard: exactly 3 Arabic letters (any \\u0621-\\u064A, no exclusions) + 4 digits (0-9 or Eastern ٠-٩). Never Hebrew. Call again for each new plate as fast as possible.',
                   parameters: {
                     type: 'OBJECT',
                     properties: {
-                      letters: { type: 'STRING', description: 'Exactly 3 Arabic letters only (Saudi plate alphabet)' },
-                      digits: { type: 'STRING', description: 'Exactly 4 Western digits 0-9' },
+                      letters: { type: 'STRING', description: 'Exactly 3 Arabic letters — full alphabet, never drop a letter' },
+                      digits: { type: 'STRING', description: 'Exactly 4 digits (Western 0-9 preferred; Eastern OK)' },
                       transcript: { type: 'STRING', description: 'Arabic transcript only — never Hebrew' }
                     },
                     required: ['letters', 'digits']

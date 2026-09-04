@@ -31,7 +31,10 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
     margin: 0; padding: 0;
-    background: var(--bg);
+    background:
+      radial-gradient(ellipse 120% 55% at 50% -8%, rgba(212,175,55,0.10), transparent 52%),
+      radial-gradient(ellipse 80% 40% at 100% 100%, rgba(76,175,125,0.08), transparent 50%),
+      var(--bg);
     color: var(--text);
     font-family: 'Tajawal', 'Segoe UI', Tahoma, Arial, sans-serif;
     min-height: 100vh;
@@ -111,13 +114,18 @@
   .nav-link:active { transform: scale(0.92); }
   .nav-link.active { color: var(--accent); background: rgba(212,175,55,0.12); }
   .search-box {
-    background: var(--panel);
+    background: linear-gradient(180deg, rgba(18, 52, 35, 0.95), rgba(14, 43, 28, 0.98));
     border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 14px;
+    border-radius: 18px;
+    padding: 16px 14px 14px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.22);
+  }
+  html[data-theme="light"] .search-box {
+    background: linear-gradient(180deg, #ffffff, #f7faf8);
+    box-shadow: 0 8px 24px rgba(18, 36, 26, 0.08);
   }
   /* ---- Plate-styled search field: mimics a real Saudi license plate
      (white body, bold black digits/letters, green KSA strip + emblem,
@@ -172,19 +180,10 @@
     direction: rtl;
     align-items: center;
     justify-content: center;
-    gap: 8px;
     width: 100%;
     min-width: 0;
   }
-  .plate-field-sep {
-    width: 2px;
-    height: 28px;
-    background: #14140f;
-    opacity: 0.18;
-    flex-shrink: 0;
-    border-radius: 1px;
-  }
-  #plateLetters, #plateDigits {
+  #plateInput {
     background: transparent;
     border: none;
     outline: none;
@@ -192,29 +191,12 @@
     font-family: 'Tajawal', 'Segoe UI', Tahoma, Arial, sans-serif;
     font-weight: 800;
     font-size: 26px;
-    padding: 6px 2px 0;
+    padding: 8px 6px 2px;
     text-align: center;
-    letter-spacing: 3px;
+    letter-spacing: 4px;
+    width: 100%;
     min-width: 0;
-  }
-  #plateLetters {
-    flex: 1.1;
     direction: rtl;
-    max-width: 5.5em;
-  }
-  #plateDigits {
-    flex: 1;
-    direction: ltr;
-    unicode-bidi: isolate;
-    max-width: 6em;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 5px;
-  }
-  #plateLetters::placeholder, #plateDigits::placeholder {
-    color: #8a8a80;
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: normal;
   }
   .plate-latin {
     text-align: center;
@@ -226,12 +208,31 @@
     min-height: 14px;
     direction: ltr;
   }
-  .plate-hint {
-    text-align: center;
+  .live-recognize {
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(212, 175, 55, 0.28);
+    background: rgba(0, 0, 0, 0.18);
+  }
+  .live-recognize.visible { display: flex; }
+  html[data-theme="light"] .live-recognize {
+    background: rgba(212, 175, 55, 0.08);
+  }
+  .live-recognize-label {
+    font-size: 11px;
     color: var(--muted);
-    font-size: 11.5px;
-    line-height: 1.6;
-    padding: 0 4px;
+    font-weight: 700;
+  }
+  .live-recognize-text {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: var(--accent);
+    min-height: 28px;
+    direction: rtl;
   }
   .icon-btn {
     border: none;
@@ -734,10 +735,6 @@
     border-color: var(--danger);
     background: linear-gradient(180deg, rgba(224, 90, 90, 0.14), rgba(224, 90, 90, 0.05));
   }
-  .scan-row.fuzzy {
-    border-color: #e6a23c;
-    background: linear-gradient(180deg, rgba(230, 162, 60, 0.16), rgba(230, 162, 60, 0.05));
-  }
   .scan-row-mark {
     font-size: 17px;
     line-height: 1;
@@ -756,10 +753,8 @@
   }
   .scan-row.found .scan-row-plate { color: #63d97f; }
   .scan-row.missing .scan-row-plate { color: #ff9c9c; }
-  .scan-row.fuzzy .scan-row-plate { color: #f0b35a; }
   html[data-theme="light"] .scan-row.found .scan-row-plate { color: #1d7a35; }
   html[data-theme="light"] .scan-row.missing .scan-row-plate { color: #a32020; }
-  html[data-theme="light"] .scan-row.fuzzy .scan-row-plate { color: #9a5f00; }
   .scan-row-meta {
     font-size: 11.5px;
     color: var(--muted);
@@ -891,14 +886,16 @@
       <button id="clearBtn" class="icon-btn plate-clear" title="مسح">✕</button>
       <div class="plate-input-col">
         <div class="plate-input-row">
-          <input id="plateLetters" type="text" maxlength="3" placeholder="عبق" autocomplete="off" aria-label="حروف اللوحة" />
-          <span class="plate-field-sep" aria-hidden="true"></span>
-          <input id="plateDigits" type="text" maxlength="4" inputmode="numeric" placeholder="3847" autocomplete="off" aria-label="أرقام اللوحة" />
+          <input id="plateInput" type="text" maxlength="16" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="رقم اللوحة كامل" />
         </div>
         <div id="plateLatin" class="plate-latin"></div>
       </div>
     </div>
-    <div class="plate-hint">٣ حروف عربية + ٤ أرقام — فعّل المايك ويبقى شغال باستمرار</div>
+
+    <div id="liveRecognize" class="live-recognize" aria-live="polite">
+      <div class="live-recognize-label">جاري التعرف</div>
+      <div id="liveRecognizeText" class="live-recognize-text"></div>
+    </div>
 
     <div class="media-actions">
       <button id="camBtn" class="media-btn" title="التقاط صورة">
@@ -945,7 +942,7 @@
       <button type="button" id="scanLogClear" class="scan-log-clear">مسح السجل</button>
     </div>
     <div id="scanLogList" class="scan-log-list">
-      <div class="scan-log-empty">كل لوحة تبحث عنها هتظهر هنا — أخضر = تطابق تام، برتقالي = اقتراح حروف، أحمر = غير موجودة</div>
+      <div class="scan-log-empty">اللوحات اللي بتدور عليها هتظهر هنا — أخضر موجودة · أحمر غير موجودة</div>
     </div>
   </section>
 
@@ -1031,9 +1028,10 @@
     rawRecords = [];
   }
 
-  const lettersInput = document.getElementById('plateLetters');
-  const digitsInput = document.getElementById('plateDigits');
+  const plateInput = document.getElementById('plateInput');
   const plateLatinEl = document.getElementById('plateLatin');
+  const liveRecognizeEl = document.getElementById('liveRecognize');
+  const liveRecognizeTextEl = document.getElementById('liveRecognizeText');
   const micBtn = document.getElementById('micBtn');
   const clearBtn = document.getElementById('clearBtn');
   const statusLine = document.getElementById('statusLine');
@@ -1042,32 +1040,46 @@
   // Official Arabic->Latin letter mapping used on real Saudi plates (not a
   // simple phonetic transliteration — e.g. Mim -> Z, Ain -> E, Ha -> J).
   const plateLatinMap = {
-    'ا': 'A', 'ب': 'B', 'ح': 'J', 'د': 'D', 'ر': 'R', 'س': 'S', 'ص': 'X',
-    'ط': 'T', 'ع': 'E', 'ق': 'G', 'ك': 'K', 'ل': 'L', 'م': 'Z', 'ن': 'N',
-    'ه': 'H', 'و': 'U', 'ي': 'V', 'ى': 'V'
+    'ا': 'A', 'أ': 'A', 'إ': 'A', 'آ': 'A',
+    'ب': 'B', 'ت': 'T', 'ث': 'T', 'ج': 'J', 'ح': 'J', 'خ': 'H',
+    'د': 'D', 'ذ': 'D', 'ر': 'R', 'ز': 'Z', 'س': 'S', 'ش': 'S',
+    'ص': 'X', 'ض': 'D', 'ط': 'T', 'ظ': 'Z', 'ع': 'E', 'غ': 'G',
+    'ف': 'F', 'ق': 'G', 'ك': 'K', 'ل': 'L', 'م': 'Z', 'ن': 'N',
+    'ه': 'H', 'ة': 'H', 'و': 'U', 'ي': 'V', 'ى': 'V'
   };
 
   function stripBidiMarks(str) {
     return String(str || '').replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '');
   }
 
+  function formatPlateInputValue(parsed) {
+    const letters = String(parsed.letters || '');
+    const digits = String(parsed.digits || '');
+    if (!letters && !digits) return '';
+    if (letters && digits) return letters.split('').join(' ') + ' | ' + digits;
+    if (letters) return letters.split('').join(' ');
+    return digits;
+  }
+
   function getPlateCombinedRaw() {
-    const letters = stripBidiMarks(normalizeArabicLetters(lettersInput.value)).toLowerCase().replace(/[^\u0621-\u064A]/g, '');
-    const digits = stripBidiMarks(normalizeDigits(digitsInput.value)).replace(/\D/g, '');
-    const query = [letters, digits].filter(Boolean).join(' ');
-    return { letters, digits, query, token: letters + digits };
+    const parsed = parseSaudiPlateSpeech(plateInput.value);
+    return {
+      letters: parsed.letters,
+      digits: parsed.digits,
+      query: plateInput.value.trim(),
+      token: parsed.token
+    };
   }
 
   function setPlateFields(parsed) {
-    lettersInput.value = parsed.letters || '';
-    digitsInput.value = parsed.digits || '';
+    plateInput.value = formatPlateInputValue(parsed || {});
     updatePlateLatin();
   }
 
   function clearPlateFields() {
-    lettersInput.value = '';
-    digitsInput.value = '';
+    plateInput.value = '';
     updatePlateLatin();
+    setLiveRecognize('');
   }
 
   function getPlateStatusLabel() {
@@ -1088,18 +1100,25 @@
       : digits;
   }
 
+  function setLiveRecognize(text) {
+    const t = String(text || '').trim();
+    if (liveRecognizeTextEl) liveRecognizeTextEl.textContent = t;
+    if (liveRecognizeEl) liveRecognizeEl.classList.toggle('visible', !!t);
+  }
+
   // Normalization helpers (normalizeText, normalizeDigits, normalizeArabicLetters,
   // escapeHtml, vibrateFound) are provided globally by db.js, loaded above.
 
   // ---- Saudi plate speech parsing (voice + typed) ----
   const LETTER_DEFINITIONS = [
+    ['ء', ['همزة', 'همزه', 'hamza', 'hamzah']],
     ['ا', ['الف', 'ألف', 'اليف', 'ا', 'alif', 'alef', 'alf']],
     ['ب', ['باء', 'با', 'به', 'ب', 'ba', 'baa', 'be', 'bee']],
     ['ت', ['تاء', 'تا', 'ته', 'ت', 'ta', 'taa', 'te']],
-    ['ث', ['ثاء', 'ثا', 'ثه', 'ث', 'tha', 'thaa']],
+    ['ث', ['ثاء', 'ثا', 'ثه', 'ث', 'tha', 'thaa', 'sa']],
     ['ج', ['جيم', 'جا', 'جه', 'ج', 'jeem', 'jim', 'ga']],
     ['ح', ['حاء', 'حا', 'حه', 'ح', 'ha', 'haa', '7a']],
-    ['خ', ['خاء', 'خا', 'خه', 'خ', 'kha', 'khaa', '5a']],
+    ['خ', ['خاء', 'خا', 'خه', 'خ', 'kha', 'khaa', '5a', 'khaa']],
     ['د', ['دال', 'دا', 'ده', 'د', 'da', 'dal']],
     ['ذ', ['ذال', 'ذا', 'ذه', 'ذ', 'dha', 'thal']],
     ['ر', ['راء', 'را', 'ره', 'ر', 'ra', 'raa', 're']],
@@ -1107,11 +1126,11 @@
     ['س', ['سين', 'سا', 'سه', 'س', 'seen', 'sin', 'sa']],
     ['ش', ['شين', 'شا', 'شه', 'ش', 'sheen', 'shin', 'sha']],
     ['ص', ['صاد', 'صا', 'صه', 'ص', 'saad', 'sad', 'sod']],
-    ['ض', ['ضاد', 'ضا', 'ضه', 'ض', 'daad', 'dad', 'dod']],
+    ['ض', ['ضاد', 'ضا', 'ضه', 'ض', 'daad', 'dad', 'dod', 'dad']],
     ['ط', ['طاء', 'طا', 'طه', 'ط', 'taa', 'tah', '6a']],
-    ['ظ', ['ظاء', 'ظا', 'ظه', 'ظ', 'zaa', 'zah']],
+    ['ظ', ['ظاء', 'ظا', 'ظه', 'ظ', 'zaa', 'zah', 'dha']],
     ['ع', ['عين', 'عا', 'عه', 'ع', 'ain', 'ayn', 'ein']],
-    ['غ', ['غين', 'غا', 'غه', 'غ', 'ghain', 'ghayn', 'ghein']],
+    ['غ', ['غين', 'غا', 'غه', 'غ', 'ghain', 'ghayn', 'ghein', 'ghin']],
     ['ف', ['فاء', 'فا', 'فه', 'ف', 'fa', 'faa', 'fe']],
     ['ق', ['قاف', 'قا', 'قه', 'ق', 'qaf', 'qaaf', 'gaf', 'gaaf']],
     ['ك', ['كاف', 'كا', 'كه', 'ك', 'kaf', 'kaaf', 'ka']],
@@ -1146,7 +1165,7 @@
 
   const ARABIC_SIMILAR_GROUPS = [
     ['ق', 'ك'], ['س', 'ص'], ['ت', 'ط'], ['ذ', 'د'], ['ز', 'ظ'], ['ه', 'ة'],
-    ['ا', 'أ', 'إ', 'آ'], ['ر', 'ز']
+    ['ا', 'أ', 'إ', 'آ'], ['ر', 'ز'], ['ض', 'ظ'], ['غ', 'ع'], ['خ', 'ح'], ['ش', 'س']
   ];
 
   let plateIndexCache = null;
@@ -1172,12 +1191,12 @@
     return plateIndexCache;
   }
 
+  // Accept every Arabic letter (ء–ي). Do not drop letters just because they
+  // are rare on official Saudi plates — voice must never discard spoken glyphs.
   function mapToAllowedPlateLetter(ch) {
     if (!ch) return '';
-    if (SAUDI_PLATE_LETTER_SET.has(ch)) return ch;
     if (HEBREW_TO_ARABIC[ch]) return HEBREW_TO_ARABIC[ch];
-    const idx = getPlateIndex();
-    if (idx.allowedFromDb.has(ch)) return ch;
+    if (/[\u0621-\u064A]/.test(ch)) return ch;
     return '';
   }
 
@@ -1188,7 +1207,7 @@
         .map(mapToAllowedPlateLetter)
         .join('')
     ).toLowerCase().slice(0, 3);
-    const digits = String(parsed.digits || '').replace(/\D/g, '').slice(0, 4);
+    const digits = normalizeDigits(String(parsed.digits || '')).replace(/\D/g, '').slice(0, 4);
     return { letters, digits, token: letters + digits };
   }
 
@@ -1265,14 +1284,6 @@
     const idx = getPlateIndex();
     if (idx.lookup.has(p.token)) {
       return Object.assign({}, p, { refined: 'exact' });
-    }
-    const fuzzy = fuzzyMatchPlate(p);
-    if (fuzzy) {
-      return Object.assign({}, fuzzy.parsed, {
-        refined: 'fuzzy',
-        fuzzyDistance: fuzzy.distance,
-        originalToken: fuzzy.originalToken
-      });
     }
     return Object.assign({}, p, { refined: 'none' });
   }
@@ -1562,7 +1573,7 @@
   }
 
   function renderEmpty() {
-    resultsEl.innerHTML = '<div class="empty-state">اكتب أو قول ٣ حروف ثم ٤ أرقام — الأرقام من الشمال لليمين<br>مثال: «رمق» ثم «6543» أو «ستة خمسة أربعة ثلاثة»</div>';
+    resultsEl.innerHTML = '';
   }
 
   const matchOverlay = document.getElementById('matchOverlay');
@@ -1590,28 +1601,22 @@
   function renderScanLog() {
     if (!scanLogListEl) return;
     const hits = scanLog.filter(e => e.matchKind === 'exact').length;
-    const misses = scanLog.filter(e => e.matchKind === 'missing').length;
+    const misses = scanLog.filter(e => e.matchKind !== 'exact').length;
     if (scanHitCountEl) scanHitCountEl.textContent = hits.toLocaleString('ar-EG') + ' ✅';
     if (scanMissCountEl) scanMissCountEl.textContent = misses.toLocaleString('ar-EG') + ' ❌';
 
     if (!scanLog.length) {
       scanLogListEl.innerHTML =
-        '<div class="scan-log-empty">كل لوحة تبحث عنها هتظهر هنا — أخضر = تطابق تام، برتقالي = اقتراح حروف، أحمر = غير موجودة</div>';
+        '<div class="scan-log-empty">اللوحات اللي بتدور عليها هتظهر هنا — أخضر موجودة · أحمر غير موجودة</div>';
       return;
     }
 
     scanLogListEl.innerHTML = scanLog.map((e) => {
-      const cls = e.matchKind === 'exact' ? 'found' : (e.matchKind === 'fuzzy' ? 'fuzzy' : 'missing');
-      const mark = e.matchKind === 'exact' ? '✅' : (e.matchKind === 'fuzzy' ? '🔶' : '❌');
-      let meta;
-      if (e.matchKind === 'exact') {
-        meta = [e.type, e.bank].filter(Boolean).join(' — ') || 'موجودة في قاعدة البيانات';
-      } else if (e.matchKind === 'fuzzy') {
-        meta = 'اقتراح: ' + (e.suggestedDisplay || '') + ' — الأرقام لازم تطابق بالظبط';
-        if (e.type || e.bank) meta += ' — ' + [e.type, e.bank].filter(Boolean).join(' — ');
-      } else {
-        meta = 'غير موجودة';
-      }
+      const cls = e.matchKind === 'exact' ? 'found' : 'missing';
+      const mark = e.matchKind === 'exact' ? '✅' : '❌';
+      const meta = e.matchKind === 'exact'
+        ? ([e.type, e.bank].filter(Boolean).join(' — ') || 'موجودة في قاعدة البيانات')
+        : 'غير موجودة';
       return (
         '<div class="scan-row ' + cls + '">' +
           '<span class="scan-row-mark">' + mark + '</span>' +
@@ -1629,8 +1634,7 @@
     const opts = Object.assign({
       matchKind: 'missing',
       records: null,
-      heardParsed: null,
-      suggestedParsed: null
+      heardParsed: null
     }, options || {});
     const heard = opts.heardParsed || parsed;
     const dedupeToken = heard.token || parsed.token;
@@ -1643,8 +1647,7 @@
       dedupeToken: dedupeToken,
       at: now,
       display: plateDisplayToken(heard),
-      suggestedDisplay: opts.suggestedParsed ? plateDisplayToken(opts.suggestedParsed) : '',
-      matchKind: opts.matchKind,
+      matchKind: opts.matchKind === 'exact' ? 'exact' : 'missing',
       type: primary ? primary.type : '',
       bank: primary ? primary.bank : '',
       time: scanLogTime(new Date())
@@ -1698,41 +1701,18 @@
   }
 
   function renderResults(query, options) {
-    const opts = Object.assign({ allowFuzzy: false, log: false }, options || {});
+    const opts = Object.assign({ log: false }, options || {});
     const heardParsed = sanitizePlateParsed(parseSaudiPlateSpeech(query));
-    let parsed = heardParsed;
-    let fuzzyFrom = '';
+    const parsed = heardParsed;
     setPlateFields(parsed);
 
     if (parsed.letters.length !== 3 || parsed.digits.length !== 4 || !parsed.token) {
-      if (!parsed.letters && !parsed.digits) {
-        renderEmpty();
-      } else {
-        resultsEl.innerHTML = '<div class="empty-state">كمّل ٣ حروف و ٤ أرقام للبحث — التطابق لازم يكون تام</div>';
-      }
+      if (!parsed.letters && !parsed.digits) renderEmpty();
       return false;
     }
 
     const idx = getPlateIndex();
     let list = (idx.lookup.get(parsed.token) || []).slice();
-    let matchKind = 'exact';
-    let suggestedParsed = null;
-
-    if (!list.length && opts.allowFuzzy) {
-      const fuzzy = fuzzyMatchPlate(parsed);
-      if (fuzzy) {
-        suggestedParsed = fuzzy.parsed;
-        parsed = fuzzy.parsed;
-        setPlateFields(parsed);
-        list = fuzzy.records.slice();
-        matchKind = 'fuzzy';
-        if (fuzzy.originalToken !== fuzzy.parsed.token) {
-          const heard = formatPlateSpeechDisplay(heardParsed);
-          const fixed = formatPlateSpeechDisplay(parsed);
-          fuzzyFrom = heard && fixed && heard !== fixed ? heard : '';
-        }
-      }
-    }
 
     const seen = new Set();
     list = list.filter(r => {
@@ -1744,15 +1724,12 @@
 
     if (list.length === 0) {
       const label = formatPlateSpeechDisplay(heardParsed) || query;
-      resultsEl.innerHTML = '<div class="no-results">⚠️ مفيش لوحة مطابقة بالظبط لـ «' + escapeHtml(label) + '»<br>التطابق لازم يكون تام — مش أقرب نتيجة</div>';
+      resultsEl.innerHTML = '<div class="no-results">غير موجودة — «' + escapeHtml(label) + '»</div>';
       if (opts.log) addScanLogEntry(heardParsed, { matchKind: 'missing', heardParsed: heardParsed });
       return false;
     }
 
-    const badge = matchKind === 'fuzzy'
-      ? '🔶 اقتراح حروف فقط' + (fuzzyFrom ? ' — سمعنا: «' + escapeHtml(fuzzyFrom) + '»' : '') + ' — الأرقام لازم تطابق'
-      : '✅ تطابق تام — ' + list.length + ' نتيجة';
-    let html = '<div class="count-badge">' + badge + '</div>';
+    let html = '<div class="count-badge">✅ تطابق تام — ' + list.length + ' نتيجة</div>';
     for (const r of list) {
       html += '<div class="result-card exact">';
       html += '<div class="plate-num">' + escapeHtml(r.plate) + '</div>';
@@ -1763,31 +1740,15 @@
     }
     resultsEl.innerHTML = html;
 
-    if (opts.log) {
-      if (matchKind === 'exact') {
-        addScanLogEntry(parsed, { matchKind: 'exact', records: list, heardParsed: heardParsed });
-      } else {
-        addScanLogEntry(heardParsed, {
-          matchKind: 'fuzzy',
-          records: list,
-          heardParsed: heardParsed,
-          suggestedParsed: suggestedParsed
-        });
-      }
+    if (opts.log) addScanLogEntry(parsed, { matchKind: 'exact', records: list, heardParsed: heardParsed });
+    announceExactMatch(list);
+    for (const r of list) {
+      addHistoryEntry({
+        plate: r.plate, type: r.type, bank: r.bank, chassis: r.chassis,
+        matchedBy: 'plate', searchedAt: new Date().toISOString()
+      }).catch(() => {});
     }
-
-    if (matchKind === 'exact') {
-      announceExactMatch(list);
-      for (const r of list) {
-        addHistoryEntry({
-          plate: r.plate, type: r.type, bank: r.bank, chassis: r.chassis,
-          matchedBy: 'plate', searchedAt: new Date().toISOString()
-        }).catch(() => {});
-      }
-      return 'exact';
-    }
-
-    return 'fuzzy';
+    return 'exact';
   }
 
   function fieldRow(label, value) {
@@ -1797,21 +1758,33 @@
   // vibrateFound() / stopAlarm() and escapeHtml() are provided globally by db.js.
 
   let debounceTimer = null;
+  let plateInputBusy = false;
   function handlePlateFieldInput() {
+    if (plateInputBusy) return;
     clearTimeout(debounceTimer);
-    const rawCombined = (lettersInput.value + ' ' + digitsInput.value).trim();
+    const rawCombined = String(plateInput.value || '').trim();
     if (!rawCombined) {
-      clearPlateFields();
+      updatePlateLatin();
       renderEmpty();
       return;
     }
     const parsed = parseSaudiPlateSpeech(rawCombined);
-    setPlateFields(parsed);
-    debounceTimer = setTimeout(() => renderResults(rawCombined, { log: true }), 150);
+    updatePlateLatin();
+    if (parsed.letters.length === 3 && parsed.digits.length === 4) {
+      debounceTimer = setTimeout(() => {
+        plateInputBusy = true;
+        try {
+          renderResults(rawCombined, { log: true });
+        } finally {
+          plateInputBusy = false;
+        }
+      }, 120);
+    } else {
+      renderEmpty();
+    }
   }
 
-  lettersInput.addEventListener('input', handlePlateFieldInput);
-  digitsInput.addEventListener('input', handlePlateFieldInput);
+  plateInput.addEventListener('input', handlePlateFieldInput);
 
   clearBtn.addEventListener('click', () => {
     clearPlateFields();
@@ -1819,7 +1792,7 @@
     renderEmpty();
     statusLine.textContent = '';
     statusLine.className = 'status-line';
-    lettersInput.focus();
+    plateInput.focus();
   });
 
   let onMatchPopupClosed = null;
@@ -2048,8 +2021,8 @@
   const micLabel = document.getElementById('micLabel');
   const micLiveBanner = document.getElementById('micLiveBanner');
   const micLiveText = document.getElementById('micLiveText');
-  const MIC_OPEN_HINT = '🎙️ المايك شغال باستمرار — قول أي لوحة في أي وقت';
-  const MIC_GEMINI_HINT = '🎙️ المايك شغال باستمرار — قول أي لوحة في أي وقت';
+  const MIC_OPEN_HINT = '🎙️ استماع مستمر — تكلم بأي لوحة';
+  const MIC_GEMINI_HINT = '🎙️ استماع مستمر — تكلم بأي لوحة';
 
   function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -2121,16 +2094,16 @@
   }
 
   function handleVoicePlate(parsed, rawText) {
-    const heardParsed = normalizePlateParts(parsed.letters, parsed.digits);
-    parsed = refinePlateWithDB(heardParsed);
-    if (parsed.letters.length !== 3 || parsed.digits.length !== 4) return false;
-    const searchKey = heardParsed.token || parsed.token;
+    const heardParsed = sanitizePlateParsed(normalizePlateParts(parsed.letters, parsed.digits));
+    if (heardParsed.letters.length !== 3 || heardParsed.digits.length !== 4) return false;
+    const searchKey = heardParsed.token;
     if (searchKey === lastSearchedToken) return false;
     lastSearchedToken = searchKey;
 
-    setPlateFields(parsed);
+    setPlateFields(heardParsed);
+    setLiveRecognize(formatPlateSpeechDisplay(heardParsed));
     const heardDisplay = formatPlateSpeechDisplay(heardParsed);
-    const matchResult = renderResults(rawText || heardParsed.token, { allowFuzzy: true, log: true });
+    const matchResult = renderResults(rawText || heardParsed.token, { log: true });
 
     geminiInputBuffer = '';
     finalTranscriptBuffer = '';
@@ -2138,19 +2111,18 @@
     clearTimeout(restartTimer);
     restartTimer = setTimeout(() => {
       if (lastSearchedToken === searchKey) lastSearchedToken = '';
-    }, 1800);
+    }, 900);
 
     if (matchResult === 'exact') {
-      // Search is paused by announceExactMatch(); the popup must be closed to resume.
-      setListeningStatus('🚨 وُجدت: ' + heardDisplay + ' — البحث متوقف، اقفل التنبيه للمتابعة', 'ok-text');
+      setListeningStatus('🚨 وُجدت: ' + heardDisplay + ' — البحث متوقف', 'ok-text');
       if (micLiveText) micLiveText.textContent = '⏸️ البحث متوقف — لوحة موجودة!';
-    } else if (matchResult === 'fuzzy') {
-      const suggested = formatPlateSpeechDisplay(parsed);
-      setListeningStatus('🔶 ' + heardDisplay + ' — اقتراح حروف: ' + suggested + ' — البحث مستمر', 'listening-text');
-      setMicUi(true);
+      setLiveRecognize('');
     } else {
-      setListeningStatus('❌ ' + heardDisplay + ' — غير موجودة، البحث مستمر', 'listening-text');
+      setListeningStatus('❌ ' + heardDisplay + ' — غير موجودة', 'listening-text');
       setMicUi(true);
+      setTimeout(() => {
+        if (micOpen && !pauseListeningForAlarm) setLiveRecognize('');
+      }, 700);
     }
     return true;
   }
@@ -2163,11 +2135,15 @@
 
     if (micOpen && (best.parsed.letters || best.parsed.digits)) {
       const live = formatPlateSpeechDisplay(best.parsed);
-      if (live) setListeningStatus('🎙️ ' + live, 'listening-text');
+      if (live) {
+        setLiveRecognize(live);
+        setListeningStatus('🎙️ ' + live, 'listening-text');
+      }
     } else if (micOpen && best.text) {
       if (voiceEngineMode === 'gemini' && containsHebrew(best.text)) {
         setListeningStatus(voiceOpenHint(), 'listening-text');
       } else {
+        setLiveRecognize(best.text.slice(0, 64));
         setListeningStatus('🎙️ ' + best.text.slice(0, 48), 'listening-text');
       }
     }
@@ -2175,20 +2151,20 @@
     clearTimeout(idleResetTimer);
     if (handleVoicePlate(best.parsed, best.text)) return;
 
-    const idleMs = voiceEngineMode === 'gemini' ? 850 : 1800;
+    const idleMs = voiceEngineMode === 'gemini' ? 480 : 1200;
     idleResetTimer = setTimeout(() => {
       if (!micOpen) return;
       const live = parseSaudiPlateSpeech(finalTranscriptBuffer);
       if (live.letters.length === 3 && live.digits.length === 4) {
         handleVoicePlate(live, finalTranscriptBuffer);
       } else if (voiceEngineMode !== 'gemini') {
-        // Web/native speech engines sometimes need a soft nudge — never fully close.
         resetVoiceBuffer();
-        scheduleVoiceRestart(200);
+        scheduleVoiceRestart(150);
       } else {
         if (!live.letters && !live.digits) {
           geminiInputBuffer = '';
           finalTranscriptBuffer = '';
+          setLiveRecognize('');
         }
       }
     }, idleMs);
@@ -2201,6 +2177,7 @@
     clearTimeout(restartTimer);
     clearTimeout(idleResetTimer);
     resetVoiceBuffer();
+    setLiveRecognize('');
     await voiceStopEngine();
     softRestarting = false;
     setMicUi(false);
@@ -2295,7 +2272,7 @@
       },
       onPlate: (plate) => {
         if (!micOpen) return;
-        const parsed = refinePlateWithDB(normalizePlateParts(plate.letters, plate.digits));
+        const parsed = sanitizePlateParsed(normalizePlateParts(plate.letters, plate.digits));
         if (parsed.letters.length === 3 && parsed.digits.length === 4) {
           handleVoicePlate(parsed, plate.transcript || parsed.token);
         }
