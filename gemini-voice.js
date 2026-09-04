@@ -49,13 +49,14 @@
   }
 
   function buildSystemInstruction() {
-    const samples = getPlateSamples();
+    // Keep prompt small — huge example lists slow first-token latency hard.
+    const samples = getPlateSamples().slice(0, 80);
     if (!samples.length) return SYSTEM_INSTRUCTION_BASE;
     return (
       SYSTEM_INSTRUCTION_BASE +
-      '\n\nقائمة مرجعية: ' + samples.length + ' لوحة سعودية حقيقية — استخدمها لفهم نطق الحروف والأنماط:\n' +
+      '\n\nأمثلة نطق (' + samples.length + '):\n' +
       samples.join('، ') +
-      '\n\nتذكير: كل الحروف في الأمثلة عربية. لا تُخرِج عبرية أبداً.'
+      '\n\nتذكير: كل الحروف عربية. لا تُخرِج عبرية. استدعِ الأداة فور اكتمال اللوحة.'
     );
   }
 
@@ -376,7 +377,7 @@
     }
 
     function markMicWarmup() {
-      micWarmupUntil = Date.now() + 3000;
+      micWarmupUntil = Date.now() + 400;
     }
 
     function feedPcmFloat(float32) {
@@ -965,22 +966,64 @@
 
     function pauseSend() {
       sendingPaused = true;
-      flushPcm(true);
+      pcmQueue = [];
+      pcmQueuedSamples = 0;
     }
 
     function resumeSend() {
       sendingPaused = false;
     }
 
+    function pauseForBackground() {
+      sendingPaused = true;
+      pcmQueue = [];
+      pcmQueuedSamples = 0;
+      emitEvent('app_hidden', {});
+      // Stop hardware capture while backgrounded — do not keep streaming audio.
+      try {
+        if (mediaStream) {
+          mediaStream.getAudioTracks().forEach((t) => {
+            try { t.enabled = false; t.stop(); } catch (e) { /* ignore */ }
+          });
+        }
+      } catch (e) { /* ignore */ }
+      mediaStream = null;
+      if (nativeMicListener) {
+        try { nativeMicListener.remove(); } catch (e) { /* ignore */ }
+        nativeMicListener = null;
+      }
+      if (nativeMicPlugin && nativeMicActive) {
+        nativeMicPlugin.stop().catch(() => {});
+      }
+      nativeMicActive = false;
+      micSource = 'none';
+      try {
+        if (workletNode) workletNode.disconnect();
+        if (processor) processor.disconnect();
+        if (source) source.disconnect();
+      } catch (e) { /* ignore */ }
+      workletNode = null;
+      processor = null;
+      source = null;
+      if (flushTimer) {
+        clearInterval(flushTimer);
+        flushTimer = null;
+      }
+      noteIssue('المايك متوقف — التطبيق في الخلفية');
+    }
+
     async function resumeAfterBackground() {
       if (!running || intentionalClose) return;
       emitEvent('app_visible', {});
+      sendingPaused = false;
       try {
         await ensureMicReady();
         if (!ws || ws.readyState !== WebSocket.OPEN) {
           await connectFastWithWatch();
         }
+        markMicWarmup();
         onStatus('listening');
+        lastIssue = '';
       } catch (err) {
         scheduleReconnect(String(err.message || err));
       }
@@ -1006,6 +1049,7 @@
       stop,
       pauseSend,
       resumeSend,
+      pauseForBackground,
       resumeAfterBackground,
       getDiagnostics,
       get running() { return running; },

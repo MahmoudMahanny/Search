@@ -1444,18 +1444,18 @@
   }
 
   function scorePlateCandidate(parsed) {
+    // Exact-only scoring for live voice — never scan the full DB with fuzzy
+    // on every transcript chunk (that freezes the UI on ~57k plates).
     const p = sanitizePlateParsed(parsed);
     let score = 0;
     if (p.letters.length === 3) score += 20;
     else score += p.letters.length * 4;
     if (p.digits.length === 4) score += 20;
     else score += p.digits.length * 4;
-    const idx = getPlateIndex();
-    if (p.token && p.letters.length === 3 && p.digits.length === 4 && idx.lookup.has(p.token)) {
-      score += 100;
-    } else if (p.letters.length === 3 && p.digits.length === 4) {
-      const fuzzy = fuzzyMatchPlate(p);
-      if (fuzzy) score += Math.max(40, 80 - fuzzy.distance * 30);
+    if (p.token && p.letters.length === 3 && p.digits.length === 4) {
+      const idx = getPlateIndex();
+      if (idx.lookup.has(p.token)) score += 100;
+      else score += 10; // complete plate shape, even if not in DB
     }
     return score;
   }
@@ -1864,6 +1864,7 @@
   let geminiInputBuffer = '';
   let readyToClearOnNextVoice = false;
   let micWarmupUntil = 0;
+  let micPausedForBackground = false;
 
   const voiceDiagPanel = document.getElementById('voiceDiagPanel');
   const voiceDiagSummary = document.getElementById('voiceDiagSummary');
@@ -2003,11 +2004,12 @@
     pauseListeningForAlarm = false;
     softRestarting = false;
     lastSearchedToken = '';
+    readyToClearOnNextVoice = true;
     resetVoiceBuffer();
     if (!micOpen) return;
     if (voiceEngineMode === 'gemini' && geminiSession && geminiSession.resumeSend) {
       try { geminiSession.resumeSend(); } catch (e) { /* ignore */ }
-      micWarmupUntil = Date.now() + 800;
+      micWarmupUntil = Date.now() + 300;
     } else {
       scheduleVoiceRestart(200);
     }
@@ -2017,10 +2019,15 @@
   }
 
   function onNewVoiceDetected() {
+    // Only clear when armed (after a committed plate / idle). Never wipe
+    // the live field on every audio spike — that caused hang/flicker.
     if (Date.now() < micWarmupUntil) return;
     if (pauseListeningForAlarm) return;
+    if (!readyToClearOnNextVoice) return;
+    readyToClearOnNextVoice = false;
     clearPlateFields();
-    resetVoiceBuffer();
+    geminiInputBuffer = '';
+    finalTranscriptBuffer = '';
     renderEmpty();
     if (micOpen) setListeningStatus(voiceOpenHint(), 'listening-text');
   }
@@ -2113,11 +2120,13 @@
 
     geminiInputBuffer = '';
     finalTranscriptBuffer = '';
+    // Next spoken plate may replace this one.
+    readyToClearOnNextVoice = true;
 
     clearTimeout(restartTimer);
     restartTimer = setTimeout(() => {
       if (lastSearchedToken === searchKey) lastSearchedToken = '';
-    }, 900);
+    }, 700);
 
     if (matchResult === 'exact') {
       setListeningStatus('🚨 وُجدت: ' + heardDisplay + ' — البحث متوقف', 'ok-text');
@@ -2128,7 +2137,7 @@
       setMicUi(true);
       setTimeout(() => {
         if (micOpen && !pauseListeningForAlarm) setLiveRecognize('');
-      }, 700);
+      }, 500);
     }
     return true;
   }
@@ -2137,47 +2146,45 @@
     if (!micOpen || pauseListeningForAlarm) return;
     const best = pickBestTranscript(candidates.filter(Boolean));
     if (best.text) finalTranscriptBuffer = best.text;
-    setPlateFields(best.parsed);
 
-    if (micOpen && (best.parsed.letters || best.parsed.digits)) {
+    // Live write immediately — never wipe mid-utterance.
+    if (best.parsed.letters || best.parsed.digits) {
+      setPlateFields(best.parsed);
       const live = formatPlateSpeechDisplay(best.parsed);
       if (live) {
         setLiveRecognize(live);
         setListeningStatus('🎙️ ' + live, 'listening-text');
       }
-    } else if (micOpen && best.text) {
-      if (voiceEngineMode === 'gemini' && containsHebrew(best.text)) {
-        setListeningStatus(voiceOpenHint(), 'listening-text');
-      } else {
-        setLiveRecognize(best.text.slice(0, 64));
-        setListeningStatus('🎙️ ' + best.text.slice(0, 48), 'listening-text');
-      }
+    } else if (best.text && !(voiceEngineMode === 'gemini' && containsHebrew(best.text))) {
+      setLiveRecognize(best.text.slice(0, 64));
+      setListeningStatus('🎙️ ' + best.text.slice(0, 48), 'listening-text');
     }
 
     clearTimeout(idleResetTimer);
     if (handleVoicePlate(best.parsed, best.text)) return;
 
-    const idleMs = voiceEngineMode === 'gemini' ? 480 : 1200;
+    const idleMs = voiceEngineMode === 'gemini' ? 350 : 900;
     idleResetTimer = setTimeout(() => {
-      if (!micOpen) return;
+      if (!micOpen || pauseListeningForAlarm) return;
       const live = parseSaudiPlateSpeech(finalTranscriptBuffer);
       if (live.letters.length === 3 && live.digits.length === 4) {
         handleVoicePlate(live, finalTranscriptBuffer);
       } else if (voiceEngineMode !== 'gemini') {
+        readyToClearOnNextVoice = true;
         resetVoiceBuffer();
         scheduleVoiceRestart(150);
-      } else {
-        if (!live.letters && !live.digits) {
-          geminiInputBuffer = '';
-          finalTranscriptBuffer = '';
-          setLiveRecognize('');
-        }
+      } else if (!live.letters && !live.digits) {
+        geminiInputBuffer = '';
+        finalTranscriptBuffer = '';
+        readyToClearOnNextVoice = true;
+        setLiveRecognize('');
       }
     }, idleMs);
   }
 
   async function disableMicSession() {
     micOpen = false;
+    micPausedForBackground = false;
     pauseListeningForAlarm = false;
     softRestarting = true;
     clearTimeout(restartTimer);
@@ -2228,7 +2235,7 @@
           pushVoiceDiag('reconnecting', 'يعيد الاتصال تلقائيًا');
         } else if (state === 'connected' || state === 'listening') {
           setMicUi(true);
-          micWarmupUntil = Date.now() + 3000;
+          micWarmupUntil = Date.now() + 400;
           setListeningStatus(voiceOpenHint(), 'listening-text');
           if (micLiveText) micLiveText.textContent = 'المايك شغال الآن — استماع مستمر';
           voiceDiagState.lastIssue = '';
@@ -2255,26 +2262,22 @@
       },
       onSpeechActivity: () => {
         if (!micOpen || Date.now() < micWarmupUntil) return;
+        // Arm-clear only — does nothing mid-plate.
         onNewVoiceDetected();
       },
       onTranscript: (text, isFinalish) => {
-        if (!micOpen) return;
+        if (!micOpen || pauseListeningForAlarm) return;
         const t = String(text || '').trim();
         if (!t || containsHebrew(t)) return;
+        // If previous plate was committed, first new audio/text clears once.
         onNewVoiceDetected();
-        // Live stream transcription
-        if (!isFinalish) {
-          if (t.length >= geminiInputBuffer.length && t.startsWith(geminiInputBuffer.slice(0, Math.min(12, geminiInputBuffer.length)))) {
-            geminiInputBuffer = t;
-          } else if (geminiInputBuffer && t.length < 80) {
-            geminiInputBuffer = (geminiInputBuffer + ' ' + t).trim().slice(-180);
-          } else {
-            geminiInputBuffer = t;
-          }
-          processTranscriptCandidates([geminiInputBuffer, t]);
-        } else {
-          processTranscriptCandidates([t, geminiInputBuffer + ' ' + t]);
+        // Prefer replacing growing transcript over blind concatenation.
+        if (!geminiInputBuffer || t.length >= geminiInputBuffer.length || isFinalish) {
+          geminiInputBuffer = t;
+        } else if (!geminiInputBuffer.includes(t) && t.length > 1) {
+          geminiInputBuffer = (geminiInputBuffer + ' ' + t).trim().slice(-120);
         }
+        processTranscriptCandidates([geminiInputBuffer, t]);
       },
       onPlate: (plate) => {
         if (!micOpen) return;
@@ -2669,16 +2672,65 @@
     });
   }
 
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible' || !micOpen) return;
-    pushVoiceDiag('app', 'التطبيق عاد للواجهة');
-    if (voiceEngineMode === 'gemini' && geminiSession && geminiSession.resumeAfterBackground) {
-      geminiSession.resumeAfterBackground().catch(() => {});
-    } else if (micOpen && voiceEngineMode !== 'gemini') {
-      scheduleVoiceRestart(300);
+  async function pauseMicForBackground(reason) {
+    if (!micOpen || micPausedForBackground || pauseListeningForAlarm) return;
+    micPausedForBackground = true;
+    pushVoiceDiag('app', reason || 'التطبيق في الخلفية — المايك متوقف');
+    if (micLiveText) micLiveText.textContent = '⏸️ المايك متوقف (التطبيق في الخلفية)';
+    setListeningStatus('⏸️ المايك متوقف أثناء الخلفية', 'listening-text');
+    if (voiceEngineMode === 'gemini' && geminiSession) {
+      try {
+        if (geminiSession.pauseForBackground) geminiSession.pauseForBackground();
+        else if (geminiSession.pauseSend) geminiSession.pauseSend();
+      } catch (e) { /* ignore */ }
+    } else {
+      try { await voiceStopEngine(); } catch (e) { /* ignore */ }
     }
     renderVoiceDiag();
+  }
+
+  async function resumeMicAfterBackground() {
+    if (!micOpen || !micPausedForBackground) return;
+    micPausedForBackground = false;
+    pushVoiceDiag('app', 'التطبيق عاد للواجهة — إعادة المايك');
+    if (voiceEngineMode === 'gemini' && geminiSession && geminiSession.resumeAfterBackground) {
+      try {
+        await geminiSession.resumeAfterBackground();
+        micWarmupUntil = Date.now() + 300;
+      } catch (e) {
+        pushVoiceDiag('app', String(e && e.message ? e.message : e));
+      }
+    } else if (micOpen) {
+      scheduleVoiceRestart(200);
+    }
+    if (micLiveText) micLiveText.textContent = 'المايك شغال الآن — استماع مستمر';
+    setListeningStatus(voiceOpenHint(), 'listening-text');
+    setMicUi(true);
+    renderVoiceDiag();
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      pauseMicForBackground('visibility hidden');
+    } else if (document.visibilityState === 'visible') {
+      resumeMicAfterBackground();
+    }
   });
+
+  // Capacitor Android: reliable background/foreground signal.
+  (async function setupAppStateMicGuard() {
+    try {
+      await waitForCapacitor(4000);
+      if (!window.Capacitor?.registerPlugin) return;
+      const App = window.Capacitor.registerPlugin('App');
+      if (!App?.addListener) return;
+      App.addListener('appStateChange', (state) => {
+        const active = !!(state && state.isActive);
+        if (!active) pauseMicForBackground('appState inactive');
+        else resumeMicAfterBackground();
+      });
+    } catch (e) { /* ignore */ }
+  })();
 
 
   // ---- Image (OCR) search with interactive crop ----
