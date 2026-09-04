@@ -1602,8 +1602,14 @@
     if (!scanLogListEl) return;
     const hits = scanLog.filter(e => e.matchKind === 'exact').length;
     const misses = scanLog.filter(e => e.matchKind !== 'exact').length;
-    if (scanHitCountEl) scanHitCountEl.textContent = hits.toLocaleString('ar-EG') + ' ✅';
-    if (scanMissCountEl) scanMissCountEl.textContent = misses.toLocaleString('ar-EG') + ' ❌';
+    if (scanHitCountEl) {
+      scanHitCountEl.textContent = scanLog.length ? (hits.toLocaleString('ar-EG') + ' ✅') : '';
+      scanHitCountEl.hidden = !scanLog.length;
+    }
+    if (scanMissCountEl) {
+      scanMissCountEl.textContent = scanLog.length ? (misses.toLocaleString('ar-EG') + ' ❌') : '';
+      scanMissCountEl.hidden = !scanLog.length;
+    }
 
     if (!scanLog.length) {
       scanLogListEl.innerHTML =
