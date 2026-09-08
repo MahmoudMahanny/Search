@@ -18,6 +18,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(MicStreamPlugin.class);
+        registerPlugin(BadgePlugin.class);
         super.onCreate(savedInstanceState);
         ensureMicPermission();
     }

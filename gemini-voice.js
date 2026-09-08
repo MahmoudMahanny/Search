@@ -205,6 +205,8 @@
     let nativeMicPlugin = null;
     let lastNativeActivityTime = 0;
     let micWarmupUntil = 0;
+    let backgroundPaused = false;
+    let pendingReconnectReason = '';
 
     function isCapacitorAndroid() {
       try {
@@ -790,6 +792,11 @@
     function scheduleReconnect(reason) {
       if (intentionalClose || !running || reconnecting) return;
       const msg = String(reason || 'انقطع الاتصال الصوتي');
+      if (backgroundPaused) {
+        pendingReconnectReason = msg;
+        noteIssue('في الخلفية — إعادة الاتصال عند العودة');
+        return;
+      }
       noteIssue(msg);
       onStatus('reconnecting');
       onError(new Error(msg + ' — جارٍ إعادة الاتصال تلقائيًا'));
@@ -883,7 +890,7 @@
           noteIssue('لا يُرسل صوت منذ 12 ثانية — أعيد الاتصال');
           scheduleReconnect('توقف إرسال الصوت');
         }
-      }, 2000);
+      }, 3000);
     }
 
     function stopHealthWatch() {
@@ -975,9 +982,12 @@
     }
 
     function pauseForBackground() {
+      backgroundPaused = true;
       sendingPaused = true;
       pcmQueue = [];
       pcmQueuedSamples = 0;
+      clearReconnectTimer();
+      reconnecting = false;
       emitEvent('app_hidden', {});
       // Stop hardware capture while backgrounded — do not keep streaming audio.
       try {
@@ -1014,16 +1024,23 @@
 
     async function resumeAfterBackground() {
       if (!running || intentionalClose) return;
+      backgroundPaused = false;
       emitEvent('app_visible', {});
       sendingPaused = false;
       try {
+        stopMic();
         await ensureMicReady();
         if (!ws || ws.readyState !== WebSocket.OPEN) {
           await connectFastWithWatch();
         }
+        startHealthWatch();
         markMicWarmup();
         onStatus('listening');
         lastIssue = '';
+        reconnectAttempts = 0;
+        if (pendingReconnectReason) {
+          pendingReconnectReason = '';
+        }
       } catch (err) {
         scheduleReconnect(String(err.message || err));
       }

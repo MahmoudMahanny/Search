@@ -1,6 +1,6 @@
 {
-  "versionCode": 38,
-  "versionName": "0.1.37",
+  "versionCode": 39,
+  "versionName": "0.1.38",
   "apkUrl": "https://mahmoudmahanny.github.io/Search/downloads/lammah.apk",
-  "notes": "إصلاح بطء/هنج الصوت: بدون مسح أثناء الكلام، بحث أسرع، إيقاف المايك في الخلفية."
+  "notes": "إصلاح حرف الواو، استئناف المايك بعد الخلفية، علامة تحديث على الأيقونة، وتحسين سرعة الاستجابة."
 }
