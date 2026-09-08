@@ -20,6 +20,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(MicStreamPlugin.class);
         registerPlugin(BadgePlugin.class);
         registerPlugin(SalawatPlugin.class);
+        registerPlugin(UpdateNotifyPlugin.class);
         super.onCreate(savedInstanceState);
         ensureMicPermission();
     }
