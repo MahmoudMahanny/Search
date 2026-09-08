@@ -11,6 +11,8 @@ on:
       - "settings.html"
       - "install.html"
       - "db.js"
+      - "update.js"
+      - "startup-salawat.js"
       - "gemini-voice.js"
       - "android/**"
       - "android-version.json"

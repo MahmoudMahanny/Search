@@ -1,8 +1,11 @@
 /* update.js — Android in-app update check against android-version.json on GitHub */
 (function () {
-  const REMOTE_URL =
-    'https://raw.githubusercontent.com/MahmoudMahanny/Search/main/android-version.json';
+  const REMOTE_URLS = [
+    'https://raw.githubusercontent.com/MahmoudMahanny/Search/main/android-version.json',
+    'https://mahmoudmahanny.github.io/Search/android-version.json'
+  ];
   const SESSION_DISMISS_KEY = 'lammahUpdateDismissedThisSession';
+  const PENDING_UPDATE_KEY = 'lammahPendingUpdate';
 
   function isAppShell() {
     if (window.__LAMMAH_APP_SHELL__) return true;
@@ -21,41 +24,101 @@
     return String(v || '').trim().replace(/^v/i, '');
   }
 
+  function waitForCapacitor(maxMs) {
+    const deadline = Date.now() + (maxMs || 6000);
+    return new Promise((resolve) => {
+      (function poll() {
+        if (window.Capacitor?.registerPlugin) return resolve(window.Capacitor);
+        if (Date.now() >= deadline) return resolve(window.Capacitor || null);
+        setTimeout(poll, 50);
+      })();
+    });
+  }
+
+  function parseBuildCode(raw) {
+    const n = parseInt(String(raw ?? '').trim(), 10);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+
+  function compareSemver(a, b) {
+    const pa = normalizeVersion(a).split('.').map((x) => parseInt(x, 10) || 0);
+    const pb = normalizeVersion(b).split('.').map((x) => parseInt(x, 10) || 0);
+    const len = Math.max(pa.length, pb.length);
+    for (let i = 0; i < len; i++) {
+      const da = pa[i] || 0;
+      const db = pb[i] || 0;
+      if (da !== db) return da < db ? -1 : 1;
+    }
+    return 0;
+  }
+
   async function getLocalInfo() {
+    await waitForCapacitor(6000);
     if (window.Capacitor?.registerPlugin) {
       try {
         const App = window.Capacitor.registerPlugin('App');
         const info = await App.getInfo();
-        return {
-          version: normalizeVersion(info.version) || (typeof APP_VERSION !== 'undefined' ? APP_VERSION : ''),
-          build: parseInt(info.build, 10) || (typeof APP_VERSION_CODE !== 'undefined' ? APP_VERSION_CODE : 0)
-        };
+        const version = normalizeVersion(info.version);
+        const build = parseBuildCode(info.build);
+        // Never mix native versionName with bundled db.js build — that caused false "latest".
+        if (version || build > 0) {
+          return { version, build, source: 'native' };
+        }
       } catch (e) { /* fall through */ }
     }
     return {
-      version: typeof APP_VERSION !== 'undefined' ? String(APP_VERSION) : '0.1.10',
-      build: typeof APP_VERSION_CODE !== 'undefined' ? APP_VERSION_CODE : 11
+      version: normalizeVersion(typeof APP_VERSION !== 'undefined' ? APP_VERSION : ''),
+      build: typeof APP_VERSION_CODE !== 'undefined' ? APP_VERSION_CODE : 0,
+      source: 'bundled'
     };
   }
 
   async function fetchRemoteVersion() {
-    const resp = await fetch(REMOTE_URL + '?t=' + Date.now(), { cache: 'no-store' });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const remote = await resp.json();
-    if (!remote || !remote.versionCode || !remote.apkUrl) throw new Error('ملف التحديث غير صالح');
-    return {
-      version: normalizeVersion(remote.versionName),
-      build: parseInt(remote.versionCode, 10) || 0,
-      apkUrl: remote.apkUrl,
-      notes: remote.notes || ''
-    };
+    let lastErr = null;
+    for (let i = 0; i < REMOTE_URLS.length; i++) {
+      try {
+        const resp = await fetch(REMOTE_URLS[i] + '?t=' + Date.now(), {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const raw = await resp.json();
+        if (!raw || !raw.versionCode || !raw.apkUrl) throw new Error('ملف التحديث غير صالح');
+        return {
+          version: normalizeVersion(raw.versionName),
+          build: parseBuildCode(raw.versionCode),
+          apkUrl: raw.apkUrl,
+          notes: raw.notes || ''
+        };
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr || new Error('تعذر جلب ملف التحديث');
   }
 
   function isNewer(remote, local) {
-    if (remote.build > 0 && local.build > 0 && remote.build > local.build) return true;
-    if (remote.version && local.version && remote.version !== local.version && remote.build > local.build) return true;
-    if (remote.build > local.build) return true;
-    return false;
+    const rBuild = remote.build || 0;
+    const lBuild = local.build || 0;
+
+    if (rBuild > 0 && lBuild > 0) {
+      if (rBuild > lBuild) return true;
+      if (rBuild < lBuild) return false;
+    }
+
+    if (remote.version && local.version) {
+      const cmp = compareSemver(remote.version, local.version);
+      if (cmp > 0) return true;
+      if (cmp < 0) return false;
+    }
+
+    return rBuild > lBuild;
+  }
+
+  function formatVersionLine(local, remote) {
+    const l = 'v' + (local.version || '?') + (local.build ? ' (كود ' + local.build + ')' : '');
+    const r = remote ? 'v' + (remote.version || '?') + (remote.build ? ' (كود ' + remote.build + ')' : '') : '';
+    return remote ? ('المثبّت: ' + l + ' | المتاح: ' + r) : l;
   }
 
   async function openApkUrl(url) {
@@ -99,6 +162,33 @@
     setLauncherBadge(0);
   }
 
+  function savePendingUpdate(remote) {
+    try {
+      localStorage.setItem(PENDING_UPDATE_KEY, JSON.stringify({
+        build: remote.build,
+        version: remote.version,
+        apkUrl: remote.apkUrl,
+        notes: remote.notes || ''
+      }));
+    } catch (e) { /* ignore */ }
+  }
+
+  function loadPendingUpdate() {
+    try {
+      const raw = localStorage.getItem(PENDING_UPDATE_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (!data || !data.build || !data.apkUrl) return null;
+      return data;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearPendingUpdate() {
+    try { localStorage.removeItem(PENDING_UPDATE_KEY); } catch (e) { /* ignore */ }
+  }
+
   async function setLauncherBadge(count) {
     if (!isAppShell() || !window.Capacitor?.registerPlugin) return;
     try {
@@ -107,6 +197,23 @@
       if (count > 0) await Badge.setCount({ count });
       else await Badge.clear();
     } catch (e) { /* launcher may not support badges */ }
+  }
+
+  async function showSystemUpdateNotification(remote) {
+    if (!isAppShell() || !window.Capacitor?.registerPlugin) return;
+    try {
+      const UpdateNotify = window.Capacitor.registerPlugin('UpdateNotify');
+      if (UpdateNotify?.show) await UpdateNotify.show({ version: remote.version || '' });
+    } catch (e) { /* ignore */ }
+  }
+
+  async function signalUpdateAvailable(remote, opts) {
+    savePendingUpdate(remote);
+    await setLauncherBadge(1);
+    if (!opts || !opts.silent) {
+      showBanner(remote);
+      await showSystemUpdateNotification(remote);
+    }
   }
 
   /**
@@ -127,6 +234,8 @@
       local = await getLocalInfo();
       remote = await fetchRemoteVersion();
     } catch (err) {
+      const pending = loadPendingUpdate();
+      if (pending && !silent) showBanner(pending);
       return {
         status: 'error',
         message: 'تعذر التحقق من التحديث — تأكد من الإنترنت (' + (err.message || err) + ')'
@@ -135,12 +244,16 @@
 
     if (!isNewer(remote, local)) {
       hideBanner();
-      setLauncherBadge(0);
+      clearPendingUpdate();
+      try {
+        const UpdateNotify = window.Capacitor?.registerPlugin?.('UpdateNotify');
+        if (UpdateNotify?.clear) await UpdateNotify.clear();
+      } catch (e) { /* ignore */ }
       return {
         status: 'latest',
         local,
         remote,
-        message: 'أنت على آخر نسخة (v' + (local.version || remote.version) + ')'
+        message: 'أنت على آخر نسخة — ' + formatVersionLine(local, remote)
       };
     }
 
@@ -148,12 +261,12 @@
       try {
         const dismissed = parseInt(sessionStorage.getItem(SESSION_DISMISS_KEY) || '0', 10);
         if (dismissed >= remote.build) {
-          setLauncherBadge(1);
+          await signalUpdateAvailable(remote, { silent: true });
           return {
             status: 'update',
             local,
             remote,
-            message: 'في تحديث متاح (v' + remote.version + ') — تم إخفاؤه لهذه الجلسة'
+            message: 'تحديث v' + remote.version + ' متاح — ' + formatVersionLine(local, remote)
           };
         }
       } catch (e) { /* ignore */ }
@@ -161,14 +274,13 @@
       try { sessionStorage.removeItem(SESSION_DISMISS_KEY); } catch (e) {}
     }
 
-    if (!silent) showBanner(remote);
-    setLauncherBadge(1);
+    await signalUpdateAvailable(remote, { silent });
 
     return {
       status: 'update',
       local,
       remote,
-      message: 'تحديث جديد متاح: v' + remote.version
+      message: 'تحديث جديد: v' + remote.version + ' — ' + formatVersionLine(local, remote)
     };
   }
 
@@ -176,8 +288,15 @@
   async function startAutoUpdateChecks() {
     if (!isAppShell()) return;
 
-    // Every app open — check quickly.
-    setTimeout(() => { checkForUpdate({ force: false }); }, 1500);
+    await waitForCapacitor(6000);
+
+    const pending = loadPendingUpdate();
+    if (pending) {
+      setLauncherBadge(1);
+      showBanner(pending);
+    }
+
+    setTimeout(() => { checkForUpdate({ force: false }); }, 800);
 
     if (listenerReady || !window.Capacitor?.registerPlugin) return;
     listenerReady = true;
@@ -185,9 +304,8 @@
       const App = window.Capacitor.registerPlugin('App');
       await App.addListener('appStateChange', ({ isActive }) => {
         if (isActive) {
-          // Coming back to the app counts as "entering" — show again if outdated.
           try { sessionStorage.removeItem(SESSION_DISMISS_KEY); } catch (e) {}
-          setTimeout(() => { checkForUpdate({ force: false }); }, 1200);
+          setTimeout(() => { checkForUpdate({ force: false }); }, 600);
         }
       });
     } catch (e) { /* ignore */ }
