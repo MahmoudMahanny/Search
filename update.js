@@ -96,6 +96,17 @@
     const banner = document.getElementById('updateBanner');
     if (banner) banner.classList.remove('visible');
     document.body.classList.remove('has-update-banner');
+    setLauncherBadge(0);
+  }
+
+  async function setLauncherBadge(count) {
+    if (!isAppShell() || !window.Capacitor?.registerPlugin) return;
+    try {
+      const Badge = window.Capacitor.registerPlugin('Badge');
+      if (!Badge) return;
+      if (count > 0) await Badge.setCount({ count });
+      else await Badge.clear();
+    } catch (e) { /* launcher may not support badges */ }
   }
 
   /**
@@ -124,6 +135,7 @@
 
     if (!isNewer(remote, local)) {
       hideBanner();
+      setLauncherBadge(0);
       return {
         status: 'latest',
         local,
@@ -136,6 +148,7 @@
       try {
         const dismissed = parseInt(sessionStorage.getItem(SESSION_DISMISS_KEY) || '0', 10);
         if (dismissed >= remote.build) {
+          setLauncherBadge(1);
           return {
             status: 'update',
             local,
@@ -149,6 +162,7 @@
     }
 
     if (!silent) showBanner(remote);
+    setLauncherBadge(1);
 
     return {
       status: 'update',
@@ -184,6 +198,7 @@
     startAutoUpdateChecks,
     openApkUrl,
     isAppShell,
-    getLocalInfo
+    getLocalInfo,
+    setLauncherBadge
   };
 })();

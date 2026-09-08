@@ -1138,7 +1138,7 @@
     ['م', ['ميم', 'ما', 'مه', 'م', 'meem', 'miim', 'mem', 'ma']],
     ['ن', ['نون', 'نا', 'نه', 'ن', 'noon', 'nun', 'na']],
     ['ه', ['هاء', 'ها', 'ه', 'ha', 'haa', 'he']],
-    ['و', ['واو', 'وا', 'وه', 'و', 'waw', 'wa', 'wow']],
+    ['و', ['واو', 'وا', 'وه', 'وو', 'ووه', 'و', 'waw', 'wa', 'wow', 'waa']],
     ['ي', ['ياء', 'يا', 'يه', 'ي', 'ى', 'ya', 'yaa', 'yea']]
   ];
 
@@ -1290,7 +1290,7 @@
 
   const SPEECH_FILLER = new Set([
     'اه', 'آه', 'ايه', 'إيه', 'ايوه', 'ايوة', 'يعني', 'تمام', 'طيب', 'كده', 'كدا',
-    'لو', 'سوا', 'ال', 'و', 'او', 'أو', 'يا', 'في', 'على', 'من', 'الى', 'إلى',
+    'لو', 'سوا', 'ال', 'او', 'أو', 'يا', 'في', 'على', 'من', 'الى', 'إلى',
     'رقم', 'لوحة', 'اللوحة', 'حروف', 'ارقام', 'أرقام', 'ارقم', 'بعدين', 'قول', 'قولي',
     'please', 'ok', 'okay', 'the', 'plate', 'letter', 'letters', 'number', 'numbers',
     'saudi', 'ksa', 'سيارة', 'سياره', 'السيارة', 'السياره'
@@ -1323,11 +1323,13 @@
   }
 
   function resolveSpokenLetter(word) {
-    if (!word || isSpeechFiller(word)) return null;
+    if (!word) return null;
     let w = normalizeArabicLetters(stripTashkeel(word)).toLowerCase();
     if (!w) return null;
 
+    // Letter names win over filler words (e.g. و = waw, not conjunction "and").
     if (letterNames[w]) return letterNames[w];
+    if (isSpeechFiller(word)) return null;
     if (w.length === 1 && /[\u0621-\u064A]/.test(w)) return w;
 
     if (w.startsWith('ال') && w.length > 2) {
@@ -1376,7 +1378,9 @@
 
     for (let w of words) {
       const wNorm = normalizeArabicLetters(w.trim()).toLowerCase();
-      if (!wNorm || isSpeechFiller(wNorm)) continue;
+      if (!wNorm) continue;
+      const earlyLetter = !digitsPhase && letters.length < 3 ? resolveSpokenLetter(wNorm) : null;
+      if (!earlyLetter && isSpeechFiller(wNorm)) continue;
 
       if (letters.length >= 3) digitsPhase = true;
 
@@ -1465,12 +1469,22 @@
     let bestScore = -1;
     let bestParsed = { letters: '', digits: '', token: '' };
     const expanded = [];
+    const seen = new Set();
     for (const text of candidates) {
       if (!text || !String(text).trim()) continue;
-      expanded.push(String(text).trim());
+      const trimmed = String(text).trim();
+      if (seen.has(trimmed)) continue;
+      seen.add(trimmed);
+      expanded.push(trimmed);
+      if (expanded.length >= 12) break;
       const cleaned = stripBidiMarks(normalizeDigits(stripTashkeel(text)));
       for (const m of cleaned.match(/[\u0621-\u064A]{2,4}[\s\u0660-\u0669\d]{2,8}|[\u0660-\u0669\d]{2,8}[\s\u0621-\u064A]{2,4}/g) || []) {
-        expanded.push(m.trim());
+        const part = m.trim();
+        if (!seen.has(part)) {
+          seen.add(part);
+          expanded.push(part);
+        }
+        if (expanded.length >= 16) break;
       }
     }
     for (const text of expanded) {
@@ -1871,7 +1885,14 @@
   const voiceDiagIssue = document.getElementById('voiceDiagIssue');
   const voiceDiagGrid = document.getElementById('voiceDiagGrid');
   const voiceDiagLog = document.getElementById('voiceDiagLog');
-  const voiceDiagState = { lines: [], lastIssue: '' };
+  const voiceDiagState = { lines: [], lastIssue: '', lastSig: '', lastHealthAt: 0 };
+
+  function voiceDiagHealthDue() {
+    const now = Date.now();
+    if (now - voiceDiagState.lastHealthAt < 2500) return false;
+    voiceDiagState.lastHealthAt = now;
+    return true;
+  }
 
   function voiceDiagLabel(key) {
     const map = {
@@ -1967,9 +1988,13 @@
 
     if (voiceDiagGrid) {
       const keys = ['ws', 'micTrack', 'micSource', 'audioContext', 'reconnecting'];
-      voiceDiagGrid.innerHTML = keys.map((k) =>
-        '<span>' + voiceDiagLabel(k) + ': <b>' + voiceDiagValue(k, d[k]) + '</b></span>'
-      ).join('');
+      const sig = keys.map((k) => k + ':' + voiceDiagValue(k, d[k])).join('|');
+      if (sig !== voiceDiagState.lastSig) {
+        voiceDiagState.lastSig = sig;
+        voiceDiagGrid.innerHTML = keys.map((k) =>
+          '<span>' + voiceDiagLabel(k) + ': <b>' + voiceDiagValue(k, d[k]) + '</b></span>'
+        ).join('');
+      }
     }
 
     if (ok && voiceDiagIssue && !voiceDiagState.lastIssue) {
@@ -2147,21 +2172,11 @@
     const best = pickBestTranscript(candidates.filter(Boolean));
     if (best.text) finalTranscriptBuffer = best.text;
 
-    // Live write immediately — never wipe mid-utterance.
-    if (best.parsed.letters || best.parsed.digits) {
-      setPlateFields(best.parsed);
-      const live = formatPlateSpeechDisplay(best.parsed);
-      if (live) {
-        setLiveRecognize(live);
-        setListeningStatus('🎙️ ' + live, 'listening-text');
-      }
-    } else if (best.text && !(voiceEngineMode === 'gemini' && containsHebrew(best.text))) {
-      setLiveRecognize(best.text.slice(0, 64));
-      setListeningStatus('🎙️ ' + best.text.slice(0, 48), 'listening-text');
-    }
-
     clearTimeout(idleResetTimer);
     if (handleVoicePlate(best.parsed, best.text)) return;
+
+    // Throttle partial UI paint — avoids hang on rapid Gemini chunks.
+    scheduleLiveTranscriptUi(best);
 
     const idleMs = voiceEngineMode === 'gemini' ? 350 : 900;
     idleResetTimer = setTimeout(() => {
@@ -2172,14 +2187,33 @@
       } else if (voiceEngineMode !== 'gemini') {
         readyToClearOnNextVoice = true;
         resetVoiceBuffer();
-        scheduleVoiceRestart(150);
-      } else if (!live.letters && !live.digits) {
-        geminiInputBuffer = '';
-        finalTranscriptBuffer = '';
-        readyToClearOnNextVoice = true;
-        setLiveRecognize('');
       }
     }, idleMs);
+  }
+
+  let liveTranscriptUiTimer = null;
+  let lastLiveTranscriptToken = '';
+
+  function scheduleLiveTranscriptUi(best) {
+    clearTimeout(liveTranscriptUiTimer);
+    liveTranscriptUiTimer = setTimeout(() => {
+      liveTranscriptUiTimer = null;
+      if (!micOpen || pauseListeningForAlarm) return;
+      if (best.parsed.letters || best.parsed.digits) {
+        const token = (best.parsed.letters || '') + (best.parsed.digits || '');
+        if (token === lastLiveTranscriptToken) return;
+        lastLiveTranscriptToken = token;
+        setPlateFields(best.parsed);
+        const live = formatPlateSpeechDisplay(best.parsed);
+        if (live) {
+          setLiveRecognize(live);
+          setListeningStatus('🎙️ ' + live, 'listening-text');
+        }
+      } else if (best.text && !(voiceEngineMode === 'gemini' && containsHebrew(best.text))) {
+        setLiveRecognize(best.text.slice(0, 64));
+        setListeningStatus('🎙️ ' + best.text.slice(0, 48), 'listening-text');
+      }
+    }, voiceEngineMode === 'gemini' ? 45 : 80);
   }
 
   async function disableMicSession() {
@@ -2250,6 +2284,7 @@
         if (!micOpen) return;
         const d = detail || {};
         if (type === 'health') {
+          if (!voiceDiagHealthDue()) return;
           renderVoiceDiag(d);
           return;
         }
@@ -2693,16 +2728,33 @@
     if (!micOpen || !micPausedForBackground) return;
     micPausedForBackground = false;
     pushVoiceDiag('app', 'التطبيق عاد للواجهة — إعادة المايك');
-    if (voiceEngineMode === 'gemini' && geminiSession && geminiSession.resumeAfterBackground) {
+    lastLiveTranscriptToken = '';
+
+    if (voiceEngineMode === 'gemini' && geminiSession) {
       try {
-        await geminiSession.resumeAfterBackground();
-        micWarmupUntil = Date.now() + 300;
+        if (geminiSession.resumeAfterBackground) {
+          await geminiSession.resumeAfterBackground();
+        } else if (geminiSession.resumeSend) {
+          geminiSession.resumeSend();
+        }
+        micWarmupUntil = Date.now() + 500;
       } catch (e) {
         pushVoiceDiag('app', String(e && e.message ? e.message : e));
+        try {
+          await geminiSession.stop();
+          await delay(250);
+          await geminiSession.start();
+          micWarmupUntil = Date.now() + 500;
+        } catch (e2) {
+          pushVoiceDiag('app', 'فشل إعادة المايك: ' + String(e2 && e2.message ? e2.message : e2));
+        }
       }
     } else if (micOpen) {
-      scheduleVoiceRestart(200);
+      softRestarting = false;
+      try { await voiceStopEngine(); } catch (e) { /* ignore */ }
+      scheduleVoiceRestart(300);
     }
+
     if (micLiveText) micLiveText.textContent = 'المايك شغال الآن — استماع مستمر';
     setListeningStatus(voiceOpenHint(), 'listening-text');
     setMicUi(true);
