@@ -23,6 +23,7 @@ const capacitorJs = join(root, 'node_modules/@capacitor/core/dist/capacitor.js')
   'update.js',
   'gemini-plate-examples.js',
   'gemini-voice.js',
+  'startup-salawat.js',
   'data.json'
 ];
 
