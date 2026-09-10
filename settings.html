@@ -226,6 +226,7 @@
     location.protocol === 'capacitor:' ||
     /android_asset/i.test(location.href);
 </script>
+<script src="capacitor.js"></script>
 <script src="db.js"></script>
 <script src="update.js"></script>
 <script>
@@ -283,6 +284,7 @@
       if (result.status === 'update') {
         updateStatus.className = 'update-status warn';
         updateStatus.textContent = result.message + ' — اضغط «تحديث الآن» في الشريط أعلاه';
+        if (result.remote) window.LammahUpdate.showBanner(result.remote);
         if (result.remote && result.remote.apkUrl) {
           const download = document.createElement('button');
           download.type = 'button';

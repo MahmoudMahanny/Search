@@ -2,10 +2,13 @@
 (function () {
   const REMOTE_URLS = [
     'https://raw.githubusercontent.com/MahmoudMahanny/Search/main/android-version.json',
-    'https://mahmoudmahanny.github.io/Search/android-version.json'
+    'https://mahmoudmahanny.github.io/Search/android-version.json',
+    './android-version.json',
+    'android-version.json'
   ];
   const SESSION_DISMISS_KEY = 'lammahUpdateDismissedThisSession';
   const PENDING_UPDATE_KEY = 'lammahPendingUpdate';
+  const NATIVE_CACHE_KEY = 'lammahNativeVersionCache';
 
   function isAppShell() {
     if (window.__LAMMAH_APP_SHELL__) return true;
@@ -25,7 +28,7 @@
   }
 
   function waitForCapacitor(maxMs) {
-    const deadline = Date.now() + (maxMs || 6000);
+    const deadline = Date.now() + (maxMs || 8000);
     return new Promise((resolve) => {
       (function poll() {
         if (window.Capacitor?.registerPlugin) return resolve(window.Capacitor);
@@ -36,8 +39,13 @@
   }
 
   function parseBuildCode(raw) {
-    const n = parseInt(String(raw ?? '').trim(), 10);
-    return Number.isFinite(n) && n > 0 ? n : 0;
+    const s = String(raw ?? '').trim();
+    if (!s) return 0;
+    if (/^\d+$/.test(s)) {
+      const n = parseInt(s, 10);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    }
+    return 0;
   }
 
   function compareSemver(a, b) {
@@ -52,20 +60,73 @@
     return 0;
   }
 
-  async function getLocalInfo() {
-    await waitForCapacitor(6000);
-    if (window.Capacitor?.registerPlugin) {
-      try {
-        const App = window.Capacitor.registerPlugin('App');
-        const info = await App.getInfo();
+  function cacheNativeVersion(info) {
+    try {
+      localStorage.setItem(NATIVE_CACHE_KEY, JSON.stringify({
+        version: info.version || '',
+        build: info.build || 0,
+        at: Date.now()
+      }));
+    } catch (e) { /* ignore */ }
+  }
+
+  function loadCachedNativeVersion() {
+    try {
+      const raw = localStorage.getItem(NATIVE_CACHE_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (!data) return null;
+      const version = normalizeVersion(data.version);
+      const build = parseBuildCode(data.build);
+      if (version || build > 0) {
+        return { version, build, source: 'cache' };
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  async function readNativeVersion() {
+    if (!window.Capacitor?.registerPlugin) return loadCachedNativeVersion();
+
+    try {
+      const NativeVersion = window.Capacitor.registerPlugin('NativeVersion');
+      if (NativeVersion?.getAppVersion) {
+        const info = await NativeVersion.getAppVersion();
         const version = normalizeVersion(info.version);
         const build = parseBuildCode(info.build);
-        // Never mix native versionName with bundled db.js build — that caused false "latest".
         if (version || build > 0) {
-          return { version, build, source: 'native' };
+          const out = { version, build, source: 'native-pm' };
+          cacheNativeVersion(out);
+          return out;
         }
-      } catch (e) { /* fall through */ }
+      }
+    } catch (e) { /* ignore */ }
+
+    try {
+      const App = window.Capacitor.registerPlugin('App');
+      const info = await App.getInfo();
+      const version = normalizeVersion(info.version);
+      const build = parseBuildCode(info.build);
+      if (version || build > 0) {
+        const out = { version, build, source: 'capacitor-app' };
+        cacheNativeVersion(out);
+        return out;
+      }
+    } catch (e) { /* ignore */ }
+
+    return loadCachedNativeVersion();
+  }
+
+  async function getLocalInfo() {
+    await waitForCapacitor(8000);
+
+    if (isAppShell()) {
+      const native = await readNativeVersion();
+      if (native) return native;
+      // Never use bundled db.js in the APK — it may be newer than the installed binary.
+      return { version: '', build: 0, source: 'unknown' };
     }
+
     return {
       version: normalizeVersion(typeof APP_VERSION !== 'undefined' ? APP_VERSION : ''),
       build: typeof APP_VERSION_CODE !== 'undefined' ? APP_VERSION_CODE : 0,
@@ -98,18 +159,22 @@
   }
 
   function isNewer(remote, local) {
-    const rBuild = remote.build || 0;
-    const lBuild = local.build || 0;
-
-    if (rBuild > 0 && lBuild > 0) {
-      if (rBuild > lBuild) return true;
-      if (rBuild < lBuild) return false;
-    }
+    if (!remote) return false;
 
     if (remote.version && local.version) {
       const cmp = compareSemver(remote.version, local.version);
       if (cmp > 0) return true;
       if (cmp < 0) return false;
+    }
+
+    const rBuild = remote.build || 0;
+    const lBuild = local.build || 0;
+    if (rBuild > 0 && lBuild > 0) return rBuild > lBuild;
+
+    // Installed version unreadable — show update if remote exists and is newer by name.
+    if (lBuild <= 0 && remote.version && !local.version) return true;
+    if (lBuild <= 0 && remote.version && local.version) {
+      return compareSemver(remote.version, local.version) > 0;
     }
 
     return rBuild > lBuild;
@@ -142,6 +207,7 @@
     msg.textContent = (remote.version ? 'الإصدار v' + remote.version + ' — ' : '') +
       (remote.notes || 'حمّل النسخة الجديدة. إن فشل التثبيت: احذف التطبيق القديم أولاً ثم ثبّت من جديد.');
     banner.classList.add('visible');
+    banner.style.display = 'flex';
     document.body.classList.add('has-update-banner');
 
     btn.onclick = () => openApkUrl(remote.apkUrl);
@@ -149,6 +215,7 @@
       dismiss.onclick = () => {
         try { sessionStorage.setItem(SESSION_DISMISS_KEY, String(remote.build)); } catch (e) {}
         banner.classList.remove('visible');
+        banner.style.display = '';
         document.body.classList.remove('has-update-banner');
       };
     }
@@ -157,7 +224,10 @@
 
   function hideBanner() {
     const banner = document.getElementById('updateBanner');
-    if (banner) banner.classList.remove('visible');
+    if (banner) {
+      banner.classList.remove('visible');
+      banner.style.display = '';
+    }
     document.body.classList.remove('has-update-banner');
     setLauncherBadge(0);
   }
@@ -208,9 +278,10 @@
   }
 
   async function signalUpdateAvailable(remote, opts) {
+    const silent = !!(opts && opts.silent);
     savePendingUpdate(remote);
     await setLauncherBadge(1);
-    if (!opts || !opts.silent) {
+    if (!silent) {
       showBanner(remote);
       await showSystemUpdateNotification(remote);
     }
@@ -235,7 +306,7 @@
       remote = await fetchRemoteVersion();
     } catch (err) {
       const pending = loadPendingUpdate();
-      if (pending && !silent) showBanner(pending);
+      if (pending) showBanner(pending);
       return {
         status: 'error',
         message: 'تعذر التحقق من التحديث — تأكد من الإنترنت (' + (err.message || err) + ')'
@@ -274,7 +345,7 @@
       try { sessionStorage.removeItem(SESSION_DISMISS_KEY); } catch (e) {}
     }
 
-    await signalUpdateAvailable(remote, { silent });
+    await signalUpdateAvailable(remote, { silent: force ? false : silent });
 
     return {
       status: 'update',
@@ -288,7 +359,7 @@
   async function startAutoUpdateChecks() {
     if (!isAppShell()) return;
 
-    await waitForCapacitor(6000);
+    await waitForCapacitor(8000);
 
     const pending = loadPendingUpdate();
     if (pending) {
@@ -296,7 +367,7 @@
       showBanner(pending);
     }
 
-    setTimeout(() => { checkForUpdate({ force: false }); }, 800);
+    setTimeout(() => { checkForUpdate({ force: false }); }, 600);
 
     if (listenerReady || !window.Capacitor?.registerPlugin) return;
     listenerReady = true;
@@ -305,7 +376,7 @@
       await App.addListener('appStateChange', ({ isActive }) => {
         if (isActive) {
           try { sessionStorage.removeItem(SESSION_DISMISS_KEY); } catch (e) {}
-          setTimeout(() => { checkForUpdate({ force: false }); }, 600);
+          setTimeout(() => { checkForUpdate({ force: false }); }, 400);
         }
       });
     } catch (e) { /* ignore */ }
@@ -317,6 +388,8 @@
     openApkUrl,
     isAppShell,
     getLocalInfo,
-    setLauncherBadge
+    setLauncherBadge,
+    showBanner,
+    hideBanner
   };
 })();

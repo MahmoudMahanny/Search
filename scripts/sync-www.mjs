@@ -24,10 +24,11 @@ const capacitorJs = join(root, 'node_modules/@capacitor/core/dist/capacitor.js')
   'gemini-plate-examples.js',
   'gemini-voice.js',
   'startup-salawat.js',
-  'data.json'
+  'data.json',
+  'android-version.json'
 ];
 
-const optional = ['plates.txt.gz', 'android-version.json'];
+const optional = ['plates.txt.gz'];
 
 rmSync(www, { recursive: true, force: true });
 mkdirSync(www, { recursive: true });
