@@ -1368,9 +1368,71 @@
     return letters + resolved;
   }
 
-  function parseSaudiPlateSpeech(text) {
-    text = stripBidiMarks(normalizeDigits(text));
+  // Normalize "ر ي ل 3746" / "ر، ي، ل" → same shape as "ريل 3746".
+  function preprocessPlateSpeechText(text) {
+    text = stripBidiMarks(normalizeDigits(String(text || '')));
     text = stripTashkeel(text);
+    text = text.replace(/[|,،;؛.\-–—·]/g, ' ');
+    const tokens = text.trim().split(/\s+/).filter(Boolean);
+    if (!tokens.length) return '';
+
+    const rebuilt = [];
+    let i = 0;
+    while (i < tokens.length) {
+      const norm = normalizeArabicLetters(stripTashkeel(tokens[i])).toLowerCase();
+      if (!norm) { i++; continue; }
+
+      if (/^\d+$/.test(norm) || resolveSpokenDigit(norm) !== null) {
+        rebuilt.push(tokens[i]);
+        i++;
+        continue;
+      }
+
+      const resolved = resolveSpokenLetter(norm);
+      const isSingleAr = norm.length === 1 && /[\u0621-\u064A]/.test(norm);
+      if (resolved || isSingleAr) {
+        const run = [];
+        let j = i;
+        while (j < tokens.length && run.length < 4) {
+          const tNorm = normalizeArabicLetters(stripTashkeel(tokens[j])).toLowerCase();
+          if (!tNorm) { j++; continue; }
+          if (/^\d+$/.test(tNorm) || resolveSpokenDigit(tNorm) !== null) break;
+
+          const r = resolveSpokenLetter(tNorm);
+          if (r) {
+            if (r === 'ا' && run.length > 0) {
+              const nextNorm = j + 1 < tokens.length
+                ? normalizeArabicLetters(stripTashkeel(tokens[j + 1])).toLowerCase() : '';
+              const nextR = nextNorm
+                ? (resolveSpokenLetter(nextNorm) || (nextNorm.length === 1 && /[\u0621-\u064A]/.test(nextNorm) ? nextNorm : ''))
+                : '';
+              if (nextR && nextR !== 'ا') { j++; continue; }
+            }
+            if (run.length < 3) run.push(r);
+          } else if (tNorm.length === 1 && /[\u0621-\u064A]/.test(tNorm)) {
+            if (run.length < 3) run.push(tNorm);
+          } else if (/^[\u0621-\u064A]{2,4}$/.test(tNorm)) {
+            for (const ch of tNorm) { if (run.length < 3) run.push(ch); }
+            j++;
+            break;
+          } else break;
+          j++;
+        }
+        if (run.length >= 2) {
+          rebuilt.push(run.slice(0, 3).join(''));
+          i = j;
+          continue;
+        }
+      }
+
+      rebuilt.push(tokens[i]);
+      i++;
+    }
+    return rebuilt.join(' ');
+  }
+
+  function parseSaudiPlateSpeech(text) {
+    text = preprocessPlateSpeechText(text);
     const words = text.trim().split(/\s+/).filter(Boolean);
     let letters = '';
     let digits = '';
@@ -1457,6 +1519,8 @@
     else score += p.letters.length * 4;
     if (p.digits.length === 4) score += 20;
     else score += p.digits.length * 4;
+    // Digits-only partials (e.g. "3746" alone) must not beat spelled letters + digits.
+    if (p.letters.length < 3 && p.digits.length === 4) return Math.min(score, 8);
     if (p.token && p.letters.length === 3 && p.digits.length === 4) {
       const idx = getPlateIndex();
       if (idx.lookup.has(p.token)) score += 100;
@@ -1465,29 +1529,87 @@
     return score;
   }
 
+  function expandTranscriptCandidates(candidates) {
+    const source = candidates
+      .filter((t) => t && String(t).trim())
+      .map((t) => String(t).trim());
+    const expanded = [];
+    const seen = new Set();
+
+    function add(text) {
+      const trimmed = String(text || '').trim();
+      if (!trimmed || seen.has(trimmed)) return;
+      seen.add(trimmed);
+      expanded.push(trimmed);
+    }
+
+    function composeFromParts(parts) {
+      const letterParts = [];
+      const digitParts = [];
+      for (const t of parts) {
+        const n = normalizeArabicLetters(stripTashkeel(t)).toLowerCase();
+        if (!n) continue;
+        if (/^\d+$/.test(n)) { digitParts.push(n); continue; }
+        const spokenD = resolveSpokenDigit(n);
+        if (spokenD !== null) { digitParts.push(spokenD); continue; }
+        const spokenL = resolveSpokenLetter(n);
+        if (spokenL) { if (letterParts.length < 3) letterParts.push(spokenL); continue; }
+        if (n.length === 1 && /[\u0621-\u064A]/.test(n)) {
+          if (letterParts.length < 3) letterParts.push(n);
+          continue;
+        }
+        const parsed = parseSaudiPlateSpeech(t);
+        if (parsed.letters.length === 3 && parsed.digits.length === 4) {
+          return parsed.letters + ' ' + parsed.digits;
+        }
+      }
+      const letters = letterParts.join('').slice(0, 3);
+      const digits = digitParts.join('').replace(/\D/g, '').slice(0, 4);
+      if (letters.length === 3 && digits.length === 4) {
+        return letters + ' ' + digits;
+      }
+      return '';
+    }
+
+    if (source.length) {
+      add(source.join(' '));
+      add(preprocessPlateSpeechText(source.join(' ')));
+      const composed = composeFromParts(source);
+      if (composed) add(composed);
+      const gluedLetters = source.map((t) => {
+        const n = normalizeArabicLetters(stripTashkeel(t)).toLowerCase();
+        const r = resolveSpokenLetter(n);
+        if (r) return r;
+        if (n.length === 1 && /[\u0621-\u064A]/.test(n)) return n;
+        if (/^\d+$/.test(n)) return n;
+        return '';
+      }).filter(Boolean).join('');
+      if (gluedLetters) {
+        add(gluedLetters);
+        add(preprocessPlateSpeechText(gluedLetters));
+      }
+    }
+
+    for (const text of source) {
+      add(text);
+      add(preprocessPlateSpeechText(text));
+      if (expanded.length >= 20) break;
+      const cleaned = stripBidiMarks(normalizeDigits(stripTashkeel(text)));
+      for (const m of cleaned.match(/[\u0621-\u064A]{2,4}[\s\u0660-\u0669\d]{2,8}|[\u0660-\u0669\d]{2,8}[\s\u0621-\u064A]{2,4}/g) || []) {
+        const part = m.trim();
+        add(part);
+        add(preprocessPlateSpeechText(part));
+        if (expanded.length >= 24) break;
+      }
+    }
+    return expanded;
+  }
+
   function pickBestTranscript(candidates) {
     let bestText = '';
     let bestScore = -1;
     let bestParsed = { letters: '', digits: '', token: '' };
-    const expanded = [];
-    const seen = new Set();
-    for (const text of candidates) {
-      if (!text || !String(text).trim()) continue;
-      const trimmed = String(text).trim();
-      if (seen.has(trimmed)) continue;
-      seen.add(trimmed);
-      expanded.push(trimmed);
-      if (expanded.length >= 12) break;
-      const cleaned = stripBidiMarks(normalizeDigits(stripTashkeel(text)));
-      for (const m of cleaned.match(/[\u0621-\u064A]{2,4}[\s\u0660-\u0669\d]{2,8}|[\u0660-\u0669\d]{2,8}[\s\u0621-\u064A]{2,4}/g) || []) {
-        const part = m.trim();
-        if (!seen.has(part)) {
-          seen.add(part);
-          expanded.push(part);
-        }
-        if (expanded.length >= 16) break;
-      }
-    }
+    const expanded = expandTranscriptCandidates(candidates);
     for (const text of expanded) {
       if (!text) continue;
       const parsed = sanitizePlateParsed(parseSaudiPlateSpeech(text));

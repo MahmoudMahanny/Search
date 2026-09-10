@@ -1,6 +1,6 @@
 {
-  "versionCode": 41,
-  "versionName": "0.1.40",
+  "versionCode": 42,
+  "versionName": "0.1.41",
   "apkUrl": "https://mahmoudmahanny.github.io/Search/downloads/lammah.apk",
-  "notes": "إصلاح فحص التحديثات وإشعار النظام عند توفر نسخة جديدة."
+  "notes": "إصلاح نطق الحروف منفصلة (ر ي ل) لتعادل النطق الملتصق (ريل)."
 }
